@@ -30,6 +30,11 @@
     gap: 12px;
     padding: 12px;
     overflow-y: auto;
+    /* Android 상태 바/제스처 내비게이션 바(노치 포함)에 가려지지 않도록 안전
+       영역만큼 위/아래 여백 추가 - 이 화면은 TopBar 없이 최상위에서 바로
+       렌더링되므로 여기서 직접 처리해야 함 */
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
   h2 {

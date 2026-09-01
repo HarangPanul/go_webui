@@ -56,6 +56,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 8px;
+    /* Android 제스처 내비게이션 바에 버튼이 가려지지 않도록 하단 안전 영역만큼
+       여백 추가 - portrait에서는 이 패널 자체가 화면 맨 아래에 위치함 */
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   /* 가로 방향(모바일 landscape) / 데스크탑: 버튼 패널을 우측 세로 컬럼으로 전환 */
@@ -68,6 +71,10 @@
       flex-direction: column;
       justify-content: center;
       width: 240px;
+      /* landscape에서는 패널이 화면 오른쪽 가장자리에 붙으므로(기기를 반대로
+         돌리면 내비게이션 바가 오른쪽에 올 수 있음) 오른쪽 안전 영역도 챙긴다.
+         하단 여백은 위에서 이미 처리된 값을 그대로 유지. */
+      padding-right: calc(8px + env(safe-area-inset-right, 0px));
     }
   }
 
