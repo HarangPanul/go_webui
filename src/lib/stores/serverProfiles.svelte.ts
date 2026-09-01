@@ -7,6 +7,9 @@ import type { NewServerProfile, ServerProfile } from "../types/serverProfile";
 function createServerProfilesStore() {
   let profiles = $state<ServerProfile[]>([]);
   let activeProfileId = $state<string | null>(null);
+  // 수정 버튼으로 선택된, 폼에 채워 넣을 프로필 (key 원문은 없음 - 아래
+  // ServerProfileForm 참고)
+  let editingProfile = $state<ServerProfile | null>(null);
 
   return {
     get profiles() {
@@ -14,6 +17,9 @@ function createServerProfilesStore() {
     },
     get activeProfileId() {
       return activeProfileId;
+    },
+    get editingProfile() {
+      return editingProfile;
     },
     async refresh() {
       profiles = await invoke<ServerProfile[]>("list_profiles");
@@ -27,6 +33,9 @@ function createServerProfilesStore() {
       } else {
         profiles.push(saved);
       }
+      if (editingProfile?.id === saved.id) {
+        editingProfile = null;
+      }
       return saved;
     },
     async remove(id: string) {
@@ -35,10 +44,19 @@ function createServerProfilesStore() {
       if (activeProfileId === id) {
         activeProfileId = null;
       }
+      if (editingProfile?.id === id) {
+        editingProfile = null;
+      }
     },
     async setActive(id: string) {
       await invoke("switch_profile", { profileId: id });
       activeProfileId = id;
+    },
+    startEdit(profile: ServerProfile) {
+      editingProfile = profile;
+    },
+    cancelEdit() {
+      editingProfile = null;
     },
   };
 }

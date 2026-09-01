@@ -70,21 +70,39 @@ pub fn get(app: &AppHandle, id: &str) -> Result<Option<ServerProfile>, String> {
 }
 
 /// id가 없으면 신규 생성(uuid v4), 있으면 기존 항목을 덮어씀(upsert).
+///
+/// `input.private_key`가 빈 문자열이면 "키는 그대로 두고 나머지만 수정"으로
+/// 취급한다 (프론트는 보안상 기존 key 원문을 절대 내려받지 않으므로, 수정 폼에서
+/// key를 다시 입력하지 않고 저장하면 빈 문자열이 온다 - 이 경우 기존 key로 덮어써
+/// 유실시키면 안 됨). 신규 생성(id 없음)인데 key가 비어 있으면 에러로 거부한다.
 pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, String> {
     let mut store = read_store(app)?;
-    let has_passphrase = detect_passphrase(&input.private_key);
 
     let id = input
         .id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let existing = store.profiles.iter().find(|p| p.id == id).cloned();
+
+    let (private_key, has_passphrase) = if input.private_key.is_empty() {
+        match &existing {
+            Some(existing) => (existing.private_key.clone(), existing.has_passphrase),
+            None => return Err("SSH private key를 입력하세요".to_string()),
+        }
+    } else {
+        (
+            input.private_key.clone(),
+            detect_passphrase(&input.private_key),
+        )
+    };
+
     let profile = ServerProfile {
         id: id.clone(),
         name: input.name,
         host: input.host,
         port: input.port,
         username: input.username,
-        private_key: input.private_key,
+        private_key,
         has_passphrase,
         engine_command: input.engine_command,
     };

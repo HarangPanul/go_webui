@@ -74,8 +74,16 @@ impl SshSession {
             .channel_open_session()
             .await
             .map_err(|e| format!("SSH 채널 open 실패: {e}"))?;
+        // SSH "exec" 요청은 로그인 셸이 아니라서 ~/.profile, ~/.bash_profile 같은 로그인
+        // 셸 설정 파일을 읽지 않는다 - `~/.local/bin`처럼 PATH를 거기서 추가하는 경우
+        // 명령을 못 찾게 된다. `-l`로 로그인 셸을 흉내내되, 그것만으로는 부족한 경우가
+        // 흔하다(예: PATH 추가가 ~/.bashrc에 있는데 거기는 "대화형 셸 아니면 return"
+        // 가드가 맨 위에 있어 절대 안 읽힘) - 그래서 흔히 쓰이는 사용자 로컬 bin
+        // 경로들을 아예 명시적으로 PATH 맨 앞에 붙여 확실하게 만든다.
+        let script = format!(r#"export PATH="$HOME/.local/bin:$HOME/bin:$PATH"; {engine_command}"#);
+        let login_shell_command = format!("sh -lc {}", shell_quote(&script));
         channel
-            .exec(true, engine_command)
+            .exec(true, login_shell_command.as_str())
             .await
             .map_err(|e| format!("엔진 명령 실행 실패({engine_command}): {e}"))?;
 
@@ -86,6 +94,30 @@ impl SshSession {
             channel,
             writer,
         })
+    }
+}
+
+/// sh 명령줄에 안전하게 끼워 넣기 위한 단일 인용(single-quote) 이스케이프.
+/// 작은따옴표 안에서는 어떤 문자도 특수 취급되지 않으므로, 원문 안의 `'`만
+/// `'\''`(따옴표 닫고 이스케이프된 따옴표 하나 넣고 다시 따옴표 열기)로 바꿔주면 된다.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_quote;
+
+    #[test]
+    fn quotes_plain_command() {
+        assert_eq!(shell_quote("katago gtp"), "'katago gtp'");
+    }
+
+    #[test]
+    fn escapes_embedded_single_quote() {
+        // 이스케이프 후 sh가 그대로 이어붙여 원문을 복원할 수 있어야 함:
+        // 'it'\''s' -> it's
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
     }
 }
 

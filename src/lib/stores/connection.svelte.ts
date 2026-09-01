@@ -22,7 +22,14 @@ function createConnectionStore() {
 
   listen<ConnectionStatusPayload>("connection-status", (event) => {
     status = event.payload.status;
-    lastError = event.payload.status === "error" ? (event.payload.message ?? null) : null;
+    // reconnecting 상태도 메시지가 오면 보여줘야 함 - 그래야 재연결이 왜 계속
+    // 실패하는지(잘못된 engine 명령 등) 화면에서 바로 알 수 있다. connected/
+    // disconnected로 정상 전이하면 지난 에러는 지운다.
+    if (event.payload.message) {
+      lastError = event.payload.message;
+    } else if (status === "connected" || status === "disconnected") {
+      lastError = null;
+    }
   });
 
   return {

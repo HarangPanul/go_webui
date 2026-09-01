@@ -56,6 +56,9 @@
             ? t("settings.connected")
             : t("settings.connect")}
         </button>
+        <button type="button" onclick={() => serverProfilesStore.startEdit(profile)}>
+          {t("settings.edit")}
+        </button>
         <button
           type="button"
           class="danger"

@@ -142,39 +142,69 @@ impl GtpSession {
     }
 }
 
+/// stderr 진단 버퍼 상한. katago 시작 로그가 길 수 있어(모델 로딩 등) 전부
+/// 붙잡아두지 않고 앞부분만 보관 - 어차피 원인 파악용 요약이면 충분함.
+const STDERR_DIAG_LIMIT: usize = 2000;
+
 fn spawn_reader(inner: Arc<Inner>, mut channel: Channel) {
     tokio::spawn(async move {
         let mut line_buffer = String::new();
         let mut response_acc = String::new();
+        // 원격 프로세스의 stderr(ExtendedData)는 GTP 프로토콜과 무관한 로그이므로
+        // stdout 파싱 버퍼(line_buffer)에 섞지 않고 진단용으로만 별도 보관한다.
+        let mut stderr_diag = String::new();
+        let mut exit_status: Option<u32> = None;
 
         loop {
             let Some(msg) = channel.wait().await else {
                 break;
             };
-            let data: &[u8] = match &msg {
-                ChannelMessage::Data { data } => data,
-                ChannelMessage::ExtendedData { data, .. } => data,
+            match &msg {
+                ChannelMessage::Data { data } => {
+                    line_buffer.push_str(&String::from_utf8_lossy(data));
+                    while let Some(pos) = line_buffer.find('\n') {
+                        let line = line_buffer[..pos].trim_end_matches('\r').to_string();
+                        line_buffer.drain(..=pos);
+                        dispatch_line(&inner, &mut response_acc, &line);
+                    }
+                }
+                ChannelMessage::ExtendedData { data, .. } => {
+                    if stderr_diag.len() < STDERR_DIAG_LIMIT {
+                        stderr_diag.push_str(&String::from_utf8_lossy(data));
+                    }
+                }
+                ChannelMessage::ExitStatus { exit_status: code } => {
+                    exit_status = Some(*code);
+                }
                 ChannelMessage::Eof | ChannelMessage::Close => break,
-                _ => continue,
-            };
-
-            line_buffer.push_str(&String::from_utf8_lossy(data));
-            while let Some(pos) = line_buffer.find('\n') {
-                let line = line_buffer[..pos].trim_end_matches('\r').to_string();
-                line_buffer.drain(..=pos);
-                dispatch_line(&inner, &mut response_acc, &line);
+                _ => {}
             }
         }
 
-        fail_all_pending(&inner, "연결이 끊겼습니다");
+        let reason = disconnect_reason(exit_status, &stderr_diag);
+        fail_all_pending(&inner, &reason);
 
         if inner.stopped.load(Ordering::SeqCst) {
             return;
         }
 
-        emit_status(&inner.app, "reconnecting", None);
+        emit_status(&inner.app, "reconnecting", Some(reason));
         reconnect_loop(inner).await;
     });
+}
+
+/// 채널이 끊긴 이유를 사람이 읽을 수 있는 문자열로 요약. exit status/stderr가
+/// 있으면(원격 명령 자체가 실패한 경우 - 잘못된 engine_command 등) 그걸 우선
+/// 보여줘야 사용자가 "네트워크 문제로 재연결 중"과 "명령 자체가 잘못됨"을 구분할 수
+/// 있다.
+fn disconnect_reason(exit_status: Option<u32>, stderr_diag: &str) -> String {
+    let trimmed = stderr_diag.trim();
+    match (exit_status, trimmed.is_empty()) {
+        (Some(code), false) => format!("원격 명령이 종료됨 (exit code {code}): {trimmed}"),
+        (Some(code), true) => format!("원격 명령이 종료됨 (exit code {code})"),
+        (None, false) => format!("연결이 끊겼습니다: {trimmed}"),
+        (None, true) => "연결이 끊겼습니다".to_string(),
+    }
 }
 
 /// 한 줄을 처리: kata-analyze 스트리밍 라인이면 즉시 파싱+emit, 아니면 GTP 응답
@@ -230,7 +260,13 @@ async fn reconnect_loop(inner: Arc<Inner>) {
                 emit_status(&inner.app, "connected", None);
                 return;
             }
-            Err(_e) => continue,
+            Err(e) => {
+                // 매 시도 실패 이유를 그대로 버리지 않고 다시 emit - 그래야
+                // "reconnecting" 상태에서 멈춰 있을 때 왜 계속 실패하는지(예: engine
+                // 명령 자체가 잘못됨) 사용자가 알 수 있다.
+                emit_status(&inner.app, "reconnecting", Some(e));
+                continue;
+            }
         }
     }
 }
