@@ -81,12 +81,7 @@ fn neighbors(x: usize, y: usize, size: usize) -> Vec<(usize, usize)> {
 }
 
 // (x, y)의 돌과 같은 색으로 연결된 그룹 전체와, 그 그룹의 활로(인접한 빈 칸) 개수를 구함
-fn collect_group(
-    stones: &Stones,
-    x: usize,
-    y: usize,
-    size: usize,
-) -> (Vec<(usize, usize)>, usize) {
+fn collect_group(stones: &Stones, x: usize, y: usize, size: usize) -> (Vec<(usize, usize)>, usize) {
     let color = stones[y][x];
     let mut visited = HashSet::new();
     visited.insert((x, y));
@@ -200,9 +195,9 @@ impl GameTree {
         }
         let color = node.next_turn;
 
-        let existing = node.children.iter().copied().find(|&id| {
-            matches!(self.nodes[id].mv, Some(m) if m.x == x && m.y == y && m.color == color)
-        });
+        let existing = node.children.iter().copied().find(
+            |&id| matches!(self.nodes[id].mv, Some(m) if m.x == x && m.y == y && m.color == color),
+        );
 
         if let Some(id) = existing {
             self.current = id;

@@ -17,6 +17,7 @@ pub fn run() {
             commands::gtp::send_gtp_command,
             commands::profile::list_profiles,
             commands::profile::save_profile,
+            commands::profile::delete_profile,
             commands::profile::switch_profile,
             commands::game::get_board_state,
             commands::game::confirm_move,

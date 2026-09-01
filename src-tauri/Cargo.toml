@@ -18,6 +18,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 russh = "0.44"
 russh-keys = "0.44"
+async-trait = "0.1"
 
 [dependencies.uuid]
 version = "1"
