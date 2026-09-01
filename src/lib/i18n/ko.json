@@ -1,0 +1,20 @@
+{
+  "app.title": "Go WebUI",
+  "settings.title": "설정",
+  "settings.serverProfile": "서버 프로필",
+  "settings.sshKey": "SSH 개인 키",
+  "game.confirmMove": "착수 확정",
+  "game.switchColor": "돌 색 전환",
+  "game.back": "뒤로 가기",
+  "game.removeLastMove": "마지막 수 제거",
+  "game.cancel": "취소",
+  "settings.keybindings.title": "키보드 단축키",
+  "settings.keybindings.pressKey": "키를 누르세요…",
+  "settings.keybindings.unset": "설정 안 됨",
+  "settings.keybindings.reset": "기본값으로 초기화",
+  "status.disconnected": "연결 안 됨",
+  "status.connecting": "연결 중…",
+  "status.connected": "연결됨",
+  "status.reconnecting": "재연결 중…",
+  "status.error": "연결 오류"
+}

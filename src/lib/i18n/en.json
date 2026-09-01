@@ -1,0 +1,20 @@
+{
+  "app.title": "Go WebUI",
+  "settings.title": "Settings",
+  "settings.serverProfile": "Server Profile",
+  "settings.sshKey": "SSH Private Key",
+  "game.confirmMove": "Confirm Move",
+  "game.switchColor": "Switch Color",
+  "game.back": "Back",
+  "game.removeLastMove": "Remove Last Move",
+  "game.cancel": "Cancel",
+  "settings.keybindings.title": "Keyboard Shortcuts",
+  "settings.keybindings.pressKey": "Press a key…",
+  "settings.keybindings.unset": "Not set",
+  "settings.keybindings.reset": "Reset to default",
+  "status.disconnected": "Disconnected",
+  "status.connecting": "Connecting…",
+  "status.connected": "Connected",
+  "status.reconnecting": "Reconnecting…",
+  "status.error": "Connection Error"
+}

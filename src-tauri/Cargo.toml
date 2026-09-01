@@ -1,0 +1,24 @@
+[package]
+name = "go-webui"
+version = "0.1.0"
+description = "Tauri v2 + Svelte 5 client for remote KataGo over SSH/GTP"
+edition = "2021"
+
+[lib]
+name = "go_webui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+russh = "0.44"
+russh-keys = "0.44"
+
+[dependencies.uuid]
+version = "1"
+features = ["v4"]

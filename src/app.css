@@ -1,0 +1,17 @@
+/* 전역 스타일 진입점. Tailwind 도입 시 이 파일에서 @tailwind 지시어 추가 */
+
+:root {
+  color-scheme: dark light;
+}
+
+/* 모바일 WebKit/Chrome에서 탭 시 기본으로 씌우는 파란 하이라이트 오버레이 비활성화 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
