@@ -24,7 +24,7 @@
 
 <svelte:window onpopstate={() => (activeScreen = "game")} />
 
-<KeyboardShortcuts {activeScreen} onOpenSettings={openSettings} />
+<KeyboardShortcuts {activeScreen} onOpenSettings={openSettings} onCloseSettings={closeSettings} />
 
 {#if activeScreen === "game"}
   <GameScreen onOpenSettings={openSettings} />

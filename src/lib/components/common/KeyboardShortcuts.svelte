@@ -18,9 +18,10 @@
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import { keybindingsStore, ALL_ACTIONS, type KeyAction } from "../../stores/keybindings.svelte";
 
-  let { activeScreen, onOpenSettings }: {
+  let { activeScreen, onOpenSettings, onCloseSettings }: {
     activeScreen: "game" | "settings";
     onOpenSettings: () => void;
+    onCloseSettings: () => void;
   } = $props();
 
   async function toggleEngineConnection() {
@@ -96,16 +97,28 @@
   }
 
   function handleKeyDown(evt: KeyboardEvent) {
+    const key = evt.key;
+
+    // Esc로 설정 화면 닫기: GTP 콘솔/SSH 프로필 입력창 등에 포커스가 있어도 항상
+    // 동작해야 하므로, 입력창 포커스를 무시하는 아래 필터보다 먼저 처리한다.
+    // KeybindingsForm이 "키 변경" 대기 중일 때는 그쪽 capture 단계 리스너가
+    // stopPropagation으로 이 핸들러까지 전달되는 것 자체를 막으므로, 그 경우엔
+    // 여기가 아니라 "키 변경 취소"만 일어나고 설정 화면은 닫히지 않는다.
+    if (key === "Escape" && activeScreen === "settings") {
+      clearPrefix();
+      onCloseSettings();
+      evt.preventDefault();
+      return;
+    }
+
     // 다른 곳(입력창 등)에 포커스가 있거나 조합키가 눌려있으면 무시
     const target = evt.target as HTMLElement | null;
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
     if (evt.ctrlKey || evt.altKey || evt.metaKey) return;
 
-    const key = evt.key;
-
-    // Esc: 대기 중이던 시퀀스 버퍼를 완전히 비움. 버퍼가 비어 있을 때는 여기서
-    // 할 일이 없으므로 그대로 흘려보내 다른 Esc 동작(예: pendingMove 취소)을
-    // 방해하지 않는다.
+    // Esc: 대기 중이던 시퀀스 버퍼를 완전히 비움(게임 화면에서만 - 설정 화면 닫기는
+    // 위에서 이미 처리됨). 버퍼가 비어 있을 때는 여기서 할 일이 없으므로 그대로
+    // 흘려보내 다른 Esc 동작(예: pendingMove 취소)을 방해하지 않는다.
     if (key === "Escape") {
       if (prefixKey) {
         clearPrefix();
