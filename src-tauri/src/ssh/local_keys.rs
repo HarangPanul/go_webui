@@ -9,6 +9,7 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+use crate::error::AppError;
 use crate::ssh::keystore::detect_passphrase;
 
 /// 프론트로 내려가는 감지된 key 요약 정보. key 원문은 포함하지 않고, 사용자가
@@ -22,8 +23,8 @@ pub struct LocalSshKeyInfo {
 }
 
 #[cfg(desktop)]
-fn ssh_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "홈 디렉터리를 찾을 수 없습니다".to_string())?;
+fn ssh_dir() -> Result<PathBuf, AppError> {
+    let home = dirs::home_dir().ok_or_else(|| AppError::Io("홈 디렉터리를 찾을 수 없습니다".to_string()))?;
     Ok(home.join(".ssh"))
 }
 
@@ -33,13 +34,14 @@ fn ssh_dir() -> Result<PathBuf, String> {
 ///   id_rsa/id_ed25519 등 관례를 따르지 않는 커스텀 이름의 key도 잡아낼 수 있음).
 /// - `~/.ssh`가 아예 없으면 에러가 아니라 빈 목록으로 처리.
 #[cfg(desktop)]
-pub fn list() -> Result<Vec<LocalSshKeyInfo>, String> {
+pub fn list() -> Result<Vec<LocalSshKeyInfo>, AppError> {
     let dir = ssh_dir()?;
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
 
-    let entries = std::fs::read_dir(&dir).map_err(|e| format!("{} 읽기 실패: {e}", dir.display()))?;
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| AppError::Io(format!("{} 읽기 실패: {e}", dir.display())))?;
 
     let mut keys = Vec::new();
     for entry in entries.flatten() {
@@ -82,29 +84,37 @@ pub fn list() -> Result<Vec<LocalSshKeyInfo>, String> {
 }
 
 #[cfg(mobile)]
-pub fn list() -> Result<Vec<LocalSshKeyInfo>, String> {
-    Err("이 플랫폼에서는 로컬 SSH key 자동 감지를 지원하지 않습니다".to_string())
+pub fn list() -> Result<Vec<LocalSshKeyInfo>, AppError> {
+    Err(AppError::Other(
+        "이 플랫폼에서는 로컬 SSH key 자동 감지를 지원하지 않습니다".to_string(),
+    ))
 }
 
 /// `list()`가 돌려준 경로 중 하나를 골라 실제 key 원문을 읽어 온다.
 /// `~/.ssh` 바깥 경로가 넘어오면 거부(방어적 - IPC로 임의 경로를 읽어가는 것을 방지).
 #[cfg(desktop)]
-pub fn load(path: &str) -> Result<String, String> {
+pub fn load(path: &str) -> Result<String, AppError> {
     let dir = ssh_dir()?;
     let requested = Path::new(path);
 
-    let canonical_dir = std::fs::canonicalize(&dir).map_err(|e| format!("{} 접근 실패: {e}", dir.display()))?;
-    let canonical_requested =
-        std::fs::canonicalize(requested).map_err(|e| format!("{path} 접근 실패: {e}"))?;
+    let canonical_dir = std::fs::canonicalize(&dir)
+        .map_err(|e| AppError::Io(format!("{} 접근 실패: {e}", dir.display())))?;
+    let canonical_requested = std::fs::canonicalize(requested)
+        .map_err(|e| AppError::Io(format!("{path} 접근 실패: {e}")))?;
 
     if !canonical_requested.starts_with(&canonical_dir) {
-        return Err("~/.ssh 밖의 경로는 읽을 수 없습니다".to_string());
+        return Err(AppError::InvalidInput(
+            "~/.ssh 밖의 경로는 읽을 수 없습니다".to_string(),
+        ));
     }
 
-    std::fs::read_to_string(&canonical_requested).map_err(|e| format!("{path} 읽기 실패: {e}"))
+    std::fs::read_to_string(&canonical_requested)
+        .map_err(|e| AppError::Io(format!("{path} 읽기 실패: {e}")))
 }
 
 #[cfg(mobile)]
-pub fn load(_path: &str) -> Result<String, String> {
-    Err("이 플랫폼에서는 로컬 SSH key 자동 감지를 지원하지 않습니다".to_string())
+pub fn load(_path: &str) -> Result<String, AppError> {
+    Err(AppError::Other(
+        "이 플랫폼에서는 로컬 SSH key 자동 감지를 지원하지 않습니다".to_string(),
+    ))
 }

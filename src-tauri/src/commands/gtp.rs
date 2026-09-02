@@ -1,6 +1,7 @@
 // GTP 명령 전송 커맨드 (착수, pass, kata-analyze 시작 등)
 use tauri::{AppHandle, State};
 
+use crate::error::AppError;
 use crate::game::Color;
 use crate::gtp::autoplay;
 use crate::state::{AppState, EngineColors};
@@ -9,7 +10,7 @@ use crate::state::{AppState, EngineColors};
 pub async fn send_gtp_command(
     state: State<'_, AppState>,
     command: String,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     // 락을 쥔 채로 세션의 send().await(원격 응답 대기)까지 들고 가면 그동안 다른 모든
     // SSH/GTP 커맨드가 block되므로, Arc만 clone해서 즉시 락을 해제한 뒤 락 밖에서 보낸다.
     let session = {
@@ -17,7 +18,7 @@ pub async fn send_gtp_command(
         guard.clone()
     };
 
-    let session = session.ok_or_else(|| "SSH에 연결되어 있지 않습니다".to_string())?;
+    let session = session.ok_or(AppError::NotConnected)?;
     session.send(&command).await
 }
 
@@ -32,14 +33,14 @@ pub async fn send_gtp_command(
 pub async fn start_kata_analyze(
     interval_centiseconds: u32,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let snapshot = state.game.lock().unwrap().snapshot();
 
     let session = {
         let guard = state.gtp_session.lock().await;
         guard.clone()
     };
-    let session = session.ok_or_else(|| "SSH에 연결되어 있지 않습니다".to_string())?;
+    let session = session.ok_or(AppError::NotConnected)?;
 
     session.set_analysis_context(snapshot.node_id, snapshot.current_turn);
     session
@@ -49,11 +50,11 @@ pub async fn start_kata_analyze(
         .await
 }
 
-fn parse_color(s: &str) -> Result<Color, String> {
+fn parse_color(s: &str) -> Result<Color, AppError> {
     match s {
         "black" => Ok(Color::Black),
         "white" => Ok(Color::White),
-        other => Err(format!("알 수 없는 색: {other}")),
+        other => Err(AppError::InvalidInput(format!("알 수 없는 색: {other}"))),
     }
 }
 
@@ -72,7 +73,7 @@ pub async fn set_engine_color(
     enabled: bool,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let color = parse_color(&color)?;
     {
         let mut colors = state.engine_colors.lock().unwrap();
@@ -104,7 +105,7 @@ pub fn get_komi(state: State<AppState>) -> f64 {
 /// 계산됨). 연결이 없으면 저장만 해두고, connect_ssh가 다음 연결 시 이 값을 그대로
 /// 보낸다.
 #[tauri::command]
-pub async fn set_komi(komi: f64, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn set_komi(komi: f64, state: State<'_, AppState>) -> Result<(), AppError> {
     *state.komi.lock().unwrap() = komi;
 
     let session = {

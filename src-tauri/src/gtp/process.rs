@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 
+use crate::error::AppError;
 use crate::game::Color;
 use crate::gtp::parser;
 use crate::models::server_profile::ServerProfile;
@@ -55,7 +56,7 @@ fn emit_status(app: &AppHandle, status: &'static str, message: Option<String>) {
     let _ = app.emit(CONNECTION_STATUS_EVENT, StatusPayload { status, message });
 }
 
-type PendingQueue = StdMutex<VecDeque<oneshot::Sender<Result<String, String>>>>;
+type PendingQueue = StdMutex<VecDeque<oneshot::Sender<Result<String, AppError>>>>;
 
 struct Inner {
     app: AppHandle,
@@ -73,7 +74,7 @@ struct Inner {
 fn fail_all_pending(inner: &Inner, message: &str) {
     let mut pending = inner.pending.lock().unwrap();
     while let Some(tx) = pending.pop_front() {
-        let _ = tx.send(Err(message.to_string()));
+        let _ = tx.send(Err(AppError::GtpSendFailed(message.to_string())));
     }
 }
 
@@ -82,7 +83,7 @@ pub struct GtpSession {
 }
 
 impl GtpSession {
-    pub async fn connect(app: AppHandle, profile: ServerProfile) -> Result<Self, String> {
+    pub async fn connect(app: AppHandle, profile: ServerProfile) -> Result<Self, AppError> {
         emit_status(&app, "connecting", None);
 
         let ssh = SshSession::connect(
@@ -94,7 +95,7 @@ impl GtpSession {
         )
         .await
         .map_err(|e| {
-            emit_status(&app, "error", Some(e.clone()));
+            emit_status(&app, "error", Some(e.to_string()));
             e
         })?;
 
@@ -125,7 +126,7 @@ impl GtpSession {
     }
 
     /// GTP 명령을 보내고 응답 전체(여러 줄일 수 있음, 빈 줄 이전까지)를 받아온다.
-    pub async fn send(&self, command: &str) -> Result<String, String> {
+    pub async fn send(&self, command: &str) -> Result<String, AppError> {
         let (tx, rx) = oneshot::channel();
 
         {
@@ -142,15 +143,15 @@ impl GtpSession {
                 // 이 writer 락을 쥐고 있는 동안 다른 send()는 push할 수 없으므로)을 제거해
                 // 다음 응답이 엉뚱한 호출자에게 매칭되지 않게 함.
                 self.inner.pending.lock().unwrap().pop_back();
-                return Err(format!("GTP 명령 전송 실패: {e}"));
+                return Err(AppError::GtpSendFailed(format!("GTP 명령 전송 실패: {e}")));
             }
             if let Err(e) = writer.flush().await {
-                return Err(format!("GTP 명령 flush 실패: {e}"));
+                return Err(AppError::GtpSendFailed(format!("GTP 명령 flush 실패: {e}")));
             }
         }
 
         rx.await
-            .map_err(|_| "연결이 끊겨 응답을 받지 못했습니다".to_string())?
+            .map_err(|_| AppError::GtpSendFailed("연결이 끊겨 응답을 받지 못했습니다".to_string()))?
     }
 
     pub async fn disconnect(&self) {
@@ -316,7 +317,7 @@ async fn reconnect_loop(inner: Arc<Inner>) {
                 // 매 시도 실패 이유를 그대로 버리지 않고 다시 emit - 그래야
                 // "reconnecting" 상태에서 멈춰 있을 때 왜 계속 실패하는지(예: engine
                 // 명령 자체가 잘못됨) 사용자가 알 수 있다.
-                emit_status(&inner.app, "reconnecting", Some(e));
+                emit_status(&inner.app, "reconnecting", Some(e.to_string()));
                 continue;
             }
         }

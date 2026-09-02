@@ -411,3 +411,219 @@ impl Default for GameTree {
         GameTree::new(19)
     }
 }
+
+// 규칙 엔진(따내기/자충수/게임 트리 탐색)에 대한 회귀 테스트. 이전에는 이 파일이
+// "규칙의 단일 진실 공급원"이라는 헤더 주석과 달리 테스트가 전혀 없었음 - 여기서부터
+// 채워나감. 5x5처럼 작은 보드를 써서 좌표를 손으로 계산하기 쉽게 함(실제 앱은
+// 19/13/9만 쓰지만 규칙 로직 자체는 크기에 무관).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------- 따내기(capture) ----------
+
+    #[test]
+    fn captures_single_surrounded_stone() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(2, 2)); // B
+        assert!(tree.confirm_move(1, 2)); // W
+        assert!(tree.confirm_move(0, 0)); // B dummy
+        assert!(tree.confirm_move(3, 2)); // W
+        assert!(tree.confirm_move(0, 1)); // B dummy
+        assert!(tree.confirm_move(2, 1)); // W
+        assert!(tree.confirm_move(0, 2)); // B dummy
+        assert!(tree.confirm_move(2, 3)); // W - (2,2)의 마지막 활로를 메워 따냄
+
+        let snap = tree.snapshot();
+        assert_eq!(snap.stones[2][2], None);
+        assert_eq!(snap.captures.white, 1);
+        assert_eq!(snap.captures.black, 0);
+    }
+
+    #[test]
+    fn captures_whole_connected_group() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0)); // B group 1번째 돌
+        assert!(tree.confirm_move(4, 4)); // W dummy
+        assert!(tree.confirm_move(1, 0)); // B group 2번째 돌 (0,0)과 연결
+        assert!(tree.confirm_move(0, 1)); // W 포위 1
+        assert!(tree.confirm_move(4, 3)); // B dummy
+        assert!(tree.confirm_move(2, 0)); // W 포위 2
+        assert!(tree.confirm_move(4, 2)); // B dummy
+        assert!(tree.confirm_move(1, 1)); // W 포위 3 - group 전체 따냄
+
+        let snap = tree.snapshot();
+        assert_eq!(snap.stones[0][0], None);
+        assert_eq!(snap.stones[0][1], None);
+        assert_eq!(snap.captures.white, 2);
+    }
+
+    #[test]
+    fn suicide_removes_own_stone_without_crediting_a_capture() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(4, 4)); // B dummy
+        assert!(tree.confirm_move(1, 0)); // W
+        assert!(tree.confirm_move(4, 3)); // B dummy
+        assert!(tree.confirm_move(0, 1)); // W
+        // (0,0) 모서리는 이웃이 (1,0)/(0,1) 둘뿐이라 둘 다 White면 Black이 두는 순간
+        // 활로 0 - 아무것도 따내지 못한 채 자기 돌만 즉시 제거되는 자충수.
+        assert!(tree.confirm_move(0, 0)); // B - 자충수
+
+        let snap = tree.snapshot();
+        assert_eq!(snap.stones[0][0], None);
+        assert_eq!(snap.stones[0][1], Some(Color::White));
+        assert_eq!(snap.stones[1][0], Some(Color::White));
+        assert_eq!(snap.captures.black, 0);
+        assert_eq!(snap.captures.white, 0);
+    }
+
+    #[test]
+    fn capture_takes_priority_over_suicide() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(2, 0)); // B
+        assert!(tree.confirm_move(1, 0)); // W - 활로가 결국 (0,0) 하나만 남을 group
+        assert!(tree.confirm_move(1, 1)); // B
+        assert!(tree.confirm_move(0, 1)); // W - 이쪽도 활로가 (0,0) 하나만 남을 group
+        assert!(tree.confirm_move(0, 2)); // B
+        assert!(tree.confirm_move(4, 4)); // W dummy (차례 맞추기용)
+        // (0,0)에 Black을 두면 얼핏 자충수처럼 보이지만, White 두 그룹을 먼저
+        // 따내면서 활로가 생기므로 실제로는 살아남는다 - apply_captures가 상대
+        // 그룹부터 제거한 뒤에 자기 그룹의 활로를 판정하기 때문.
+        assert!(tree.confirm_move(0, 0)); // B
+
+        let snap = tree.snapshot();
+        assert_eq!(snap.stones[0][0], Some(Color::Black));
+        assert_eq!(snap.stones[0][1], None);
+        assert_eq!(snap.stones[1][0], None);
+        assert_eq!(snap.captures.black, 2);
+    }
+
+    #[test]
+    fn confirm_move_rejects_occupied_point() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0));
+        let node_count_before = tree.nodes.len();
+        assert!(!tree.confirm_move(0, 0));
+        assert_eq!(tree.nodes.len(), node_count_before);
+        assert_eq!(tree.snapshot().node_id, 1);
+    }
+
+    // ---------- 게임 트리 탐색 ----------
+
+    #[test]
+    fn confirm_move_reuses_existing_branch() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(2, 2));
+        let first_id = tree.snapshot().node_id;
+        tree.go_back();
+        assert!(tree.confirm_move(2, 2));
+        assert_eq!(tree.snapshot().node_id, first_id);
+        assert_eq!(tree.nodes.len(), 2); // 새 노드가 생기지 않고 기존 가지를 재사용해야 함
+    }
+
+    #[test]
+    fn pass_turn_reuses_existing_branch() {
+        let mut tree = GameTree::new(5);
+        tree.pass_turn();
+        let first_id = tree.snapshot().node_id;
+        tree.go_back();
+        tree.pass_turn();
+        assert_eq!(tree.snapshot().node_id, first_id);
+        assert_eq!(tree.nodes.len(), 2);
+    }
+
+    #[test]
+    fn go_back_from_root_is_noop() {
+        let mut tree = GameTree::new(5);
+        tree.go_back();
+        assert_eq!(tree.snapshot().node_id, 0);
+        assert!(!tree.snapshot().can_go_back);
+    }
+
+    #[test]
+    fn go_forward_from_leaf_returns_none() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0));
+        assert_eq!(tree.go_forward(), None);
+        assert_eq!(tree.snapshot().node_id, 1);
+    }
+
+    #[test]
+    fn go_forward_prefers_last_visited_child() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0)); // 가지 A 생성
+        tree.go_back();
+        assert!(tree.confirm_move(4, 4)); // 가지 B 생성 (root.last_child = B)
+        tree.go_back();
+
+        let mv = tree.go_forward();
+        assert_eq!(
+            mv,
+            Some(MoveInfo { x: 4, y: 4, color: Color::Black, is_pass: false })
+        );
+        assert_eq!(tree.snapshot().node_id, 2); // 먼저 만들어진 A(id1)가 아니라 마지막에 방문한 B(id2)
+    }
+
+    #[test]
+    fn remove_last_move_clears_dangling_last_child() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0)); // 가지 A(id1)
+        tree.go_back();
+        assert!(tree.confirm_move(4, 4)); // 가지 B(id2), root.last_child = B
+        tree.remove_last_move(); // B를 지움 - root.last_child가 B를 가리키다 None으로 정리돼야 함
+
+        let mv = tree.go_forward();
+        assert_eq!(
+            mv,
+            Some(MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false })
+        );
+        assert_eq!(tree.snapshot().node_id, 1); // 남은 유일한 자식 A로 이동
+    }
+
+    #[test]
+    fn remove_last_move_from_root_is_noop() {
+        let mut tree = GameTree::new(5);
+        tree.remove_last_move();
+        assert_eq!(tree.snapshot().node_id, 0);
+        assert!(!tree.snapshot().can_go_back);
+    }
+
+    #[test]
+    fn ancestor_chain_is_self_first_root_last() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0));
+        assert!(tree.confirm_move(1, 1));
+        assert!(tree.confirm_move(2, 2));
+        assert_eq!(tree.snapshot().ancestor_chain, vec![3, 2, 1, 0]);
+    }
+
+    // ---------- 알려진 규칙 격차(의도적으로 보존, 고치지 않음) ----------
+
+    // 패(ko)/positional superko 판정은 아직 구현되어 있지 않음 - 이 테스트는 그
+    // 사실을 고치는 게 아니라 현재 동작으로 고정해 문서화하는 용도. 나중에 ko 규칙을
+    // 추가한다면 confirm_move 안, 기존 가지 재사용 판정 이후·실제 stones 변경 이전이
+    // 그 판정을 넣을 위치가 됨.
+    #[test]
+    fn allows_immediate_recapture_no_ko_rule_yet() {
+        let mut tree = GameTree::new(5);
+        // P=(2,2)를 White가 가둬 따내고, 그 자리에 둔 White 돌을 Black이 바로
+        // 되따내 정확히 같은 판 모양으로 되돌아오는 "패" 모양을 만든다.
+        assert!(tree.confirm_move(2, 2)); // B: P
+        assert!(tree.confirm_move(3, 2)); // W: P의 동쪽
+        assert!(tree.confirm_move(0, 2)); // B: Q(1,2)의 서쪽
+        assert!(tree.confirm_move(2, 1)); // W: P의 북쪽
+        assert!(tree.confirm_move(1, 1)); // B: Q의 북쪽
+        assert!(tree.confirm_move(2, 3)); // W: P의 남쪽
+        assert!(tree.confirm_move(1, 3)); // B: Q의 남쪽
+
+        let before = tree.snapshot();
+
+        assert!(tree.confirm_move(1, 2)); // W: Q - P의 마지막 활로를 메워 따냄
+        assert_eq!(tree.snapshot().stones[2][2], None);
+
+        assert!(tree.confirm_move(2, 2)); // B: 즉시 되따냄 - ko 규칙이 없으므로 허용됨
+        let after = tree.snapshot();
+
+        assert_eq!(after.stones, before.stones); // 판이 정확히 같은 모양으로 되돌아옴
+    }
+}

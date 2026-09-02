@@ -10,6 +10,8 @@ use russh::client::{self, Handle};
 use russh::ChannelMsg;
 use tokio::io::AsyncWrite;
 
+use crate::error::AppError;
+
 /// 호스트가 응답하지 않을 때(방화벽이 SYN을 조용히 버리는 경우 등) "연결 중" 상태로
 /// 무한정 멈춰있지 않도록 접속 자체에 상한을 둠.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,9 +51,9 @@ impl SshSession {
         username: &str,
         private_key: &str,
         engine_command: &str,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AppError> {
         let key_pair = russh_keys::decode_secret_key(private_key, None)
-            .map_err(|e| format!("SSH key 디코딩 실패: {e}"))?;
+            .map_err(|e| AppError::SshAuthFailed(format!("SSH key 디코딩 실패: {e}")))?;
 
         let config = Arc::new(client::Config::default());
         let mut handle = tokio::time::timeout(
@@ -59,21 +61,23 @@ impl SshSession {
             client::connect(config, (host, port), ClientHandler),
         )
         .await
-        .map_err(|_| format!("SSH 연결 시간 초과({host}:{port})"))?
-        .map_err(|e| format!("SSH 연결 실패({host}:{port}): {e}"))?;
+        .map_err(|_| AppError::SshConnectFailed(format!("SSH 연결 시간 초과({host}:{port})")))?
+        .map_err(|e| AppError::SshConnectFailed(format!("SSH 연결 실패({host}:{port}): {e}")))?;
 
         let authenticated = handle
             .authenticate_publickey(username, Arc::new(key_pair))
             .await
-            .map_err(|e| format!("SSH 인증 실패: {e}"))?;
+            .map_err(|e| AppError::SshAuthFailed(format!("SSH 인증 실패: {e}")))?;
         if !authenticated {
-            return Err("SSH 인증 거부됨 (key 또는 username을 확인하세요)".to_string());
+            return Err(AppError::SshAuthFailed(
+                "SSH 인증 거부됨 (key 또는 username을 확인하세요)".to_string(),
+            ));
         }
 
         let channel = handle
             .channel_open_session()
             .await
-            .map_err(|e| format!("SSH 채널 open 실패: {e}"))?;
+            .map_err(|e| AppError::SshConnectFailed(format!("SSH 채널 open 실패: {e}")))?;
         // SSH "exec" 요청은 로그인 셸이 아니라서 ~/.profile, ~/.bash_profile 같은 로그인
         // 셸 설정 파일을 읽지 않는다 - `~/.local/bin`처럼 PATH를 거기서 추가하는 경우
         // 명령을 못 찾게 된다. `-l`로 로그인 셸을 흉내내되, 그것만으로는 부족한 경우가
@@ -85,7 +89,7 @@ impl SshSession {
         channel
             .exec(true, login_shell_command.as_str())
             .await
-            .map_err(|e| format!("엔진 명령 실행 실패({engine_command}): {e}"))?;
+            .map_err(|e| AppError::SshConnectFailed(format!("엔진 명령 실행 실패({engine_command}): {e}")))?;
 
         let writer: Pin<Box<dyn AsyncWrite + Send>> = Box::pin(channel.make_writer());
 

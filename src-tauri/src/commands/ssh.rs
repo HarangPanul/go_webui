@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
+use crate::error::AppError;
 use crate::gtp::process::GtpSession;
 use crate::ssh::keystore;
 use crate::ssh::local_keys::{self, LocalSshKeyInfo};
@@ -13,16 +14,13 @@ pub async fn connect_ssh(
     app: AppHandle,
     state: State<'_, AppState>,
     profile_id: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let profile = keystore::get(&app, &profile_id)?
-        .ok_or_else(|| format!("존재하지 않는 프로필: {profile_id}"))?;
+        .ok_or_else(|| AppError::ProfileNotFound(profile_id.clone()))?;
 
     if profile.has_passphrase {
         // PLAN.md 결정사항: passphrase 걸린 key는 1차 버전 미지원, 경고만 표시
-        return Err(
-            "passphrase가 걸린 key는 아직 지원하지 않습니다. passphrase 없는 key를 사용해주세요."
-                .to_string(),
-        );
+        return Err(AppError::PassphraseUnsupported);
     }
 
     let session = GtpSession::connect(app, profile).await?;
@@ -42,7 +40,7 @@ pub async fn connect_ssh(
 }
 
 #[tauri::command]
-pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), AppError> {
     let session = {
         let mut guard = state.gtp_session.lock().await;
         guard.take()
@@ -59,12 +57,12 @@ pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), String> {
 /// 돌려준다. 모바일에서는 항상 에러 - 프론트는 이걸 "이 플랫폼은 미지원"으로 받아
 /// 감지 UI 자체를 숨기면 됨.
 #[tauri::command]
-pub async fn list_local_ssh_keys() -> Result<Vec<LocalSshKeyInfo>, String> {
+pub async fn list_local_ssh_keys() -> Result<Vec<LocalSshKeyInfo>, AppError> {
     local_keys::list()
 }
 
 /// `list_local_ssh_keys`가 돌려준 경로 중 하나를 골랐을 때 실제 key 원문을 읽어온다.
 #[tauri::command]
-pub async fn load_local_ssh_key(path: String) -> Result<String, String> {
+pub async fn load_local_ssh_key(path: String) -> Result<String, AppError> {
     local_keys::load(&path)
 }
