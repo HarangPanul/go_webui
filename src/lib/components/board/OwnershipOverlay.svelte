@@ -4,8 +4,19 @@
   // 토글이 켜져 있을 때만 그림 - Analysis/Ownership 두 오버레이가 항상 같은 데이터를
   // 받고 있어도 표시 여부는 독립적으로 켜고 끌 수 있음.
   //
+  // 지금 노드 자체는 아직 한 번도 분석된 적이 없을 수 있다(막 이동한 직후 아직
+  // kata-analyze의 첫 결과가 안 왔거나, 애초에 분석 없이 지나온 위치) - 이 경우
+  // WinrateGraph.svelte와 같은 방식으로 현재 노드부터 조상 방향으로(자기 자신 포함,
+  // boardStore.ancestorChain이 가까운 순서로 줌) 캐싱된 ownership이 있는 가장 가까운
+  // 노드의 값을 대신 보여준다 - 완전히 같은 위치는 아닐 수 있지만 지형이 크게 다르지
+  // 않은 한두 수 차이라 계속 뭔가 보이는 편이 매 이동마다 오버레이가 깜빡이며 사라지는
+  // 것보다 낫다. AnalysisOverlay(bluespot 후보 지점)는 반대로 이런 조상 fallback 없이
+  // 노드마다 개별적으로 관리한다 - 후보 수 자체가 위치마다 완전히 달라질 수 있어서,
+  // 다른 노드의 후보를 그대로 보여주면 "지금 이 위치에서 그 칸에 후보가 있다"는
+  // 잘못된 인상을 줄 수 있기 때문(그레이스케일 영역 표시보다 훨씬 오해하기 쉬움).
+  //
   // ownership 값은 kata-analyze의 winrate/scoreLead와 같은 기준(분석 요청 당시
-  // 둘 차례였던 색, analysisStore.current.forColor)으로 [-1, 1] - 그대로 쓰면 같은 흑 집이
+  // 둘 차례였던 색, 위 forColor)으로 [-1, 1] - 그대로 쓰면 같은 흑 집이
   // 분석 시작 시점이 흑 차례였는지 백 차례였는지에 따라 색이 뒤바뀌어 보이므로,
   // WinrateGraph.svelte와 같은 방식으로 항상 "흑 기준" 값으로 반전시켜 둔 뒤에
   // 흑(검정)<->백(흰색) 그레이스케일로 매핑한다. -1..1의 절대 스케일 자체가 이미
@@ -35,6 +46,18 @@
     return { margin, step };
   }
 
+  // 현재 노드부터 조상 방향으로 캐싱된 ownership이 있는 가장 가까운 노드를 찾음
+  // (WinrateGraph.svelte의 blackWinrate/blackScoreLead와 같은 패턴).
+  function nearestOwnership(): { ownership: number[]; forColor: "black" | "white" } | null {
+    for (const nodeId of boardStore.ancestorChain) {
+      const cached = analysisStore.forNode(nodeId);
+      if (cached?.result.ownership) {
+        return { ownership: cached.result.ownership, forColor: cached.forColor };
+      }
+    }
+    return null;
+  }
+
   function draw() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
@@ -45,10 +68,9 @@
 
     if (!analysisStore.showOwnership) return;
 
-    const current = analysisStore.current;
-    const ownership = current?.result.ownership;
-    const forColor = current?.forColor;
-    if (!ownership || !forColor) return;
+    const current = nearestOwnership();
+    if (!current) return;
+    const { ownership, forColor } = current;
 
     const boardSize = boardStore.size;
     if (ownership.length !== boardSize * boardSize) return; // 보드 크기와 안 맞으면(스트림 전환 중 등) 건너뜀
@@ -107,7 +129,7 @@
 
   $effect(() => {
     boardStore.size;
-    analysisStore.current;
+    boardStore.ancestorChain;
     analysisStore.showOwnership;
     draw();
   });

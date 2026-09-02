@@ -13,8 +13,21 @@
   import InstantMoveForm from "../components/settings/InstantMoveForm.svelte";
   import CollapsibleSection from "../components/settings/CollapsibleSection.svelte";
   import { serverProfilesStore } from "../stores/serverProfiles.svelte";
+  import { handleRovingArrowKeys } from "../utils/rovingFocus";
 
   let { onClose }: { onClose: () => void } = $props();
+
+  // 위/아래 화살표로 화면 안 버튼/입력 사이를 이동(rovingFocus.ts 참고) - 마우스나
+  // 터치 없이도 설정 화면을 조작할 수 있게 함. 숫자 입력(komi/port 등)에서 화살표를
+  // 누르면 브라우저 기본 동작(스피너로 값 증가/감소)이 이 이동으로 대체되므로 값이
+  // 바뀌지 않는다. 하드코딩된 요소 목록이 아니라 매번 DOM을 다시 훑으므로, 이후에
+  // 이 화면에 새 버튼/입력이 추가돼도 자동으로 이 탐색에 포함된다.
+  let rootEl: HTMLElement | undefined = $state();
+
+  function onKeyDown(evt: KeyboardEvent) {
+    if (!rootEl) return;
+    handleRovingArrowKeys(evt, rootEl);
+  }
 
   // SSH host/port/username/key를 입력하는 폼(ServerProfileForm)은 기본으로 접어두고
   // "엔진 추가" 버튼 뒤에 숨긴다 - 이미 등록된 목록(ServerProfileList)만 봐도 되는
@@ -34,7 +47,7 @@
   }
 </script>
 
-<section class="settings-screen">
+<section class="settings-screen" bind:this={rootEl} onkeydown={onKeyDown}>
   <h2>{t("settings.serverProfile")}</h2>
   <ServerProfileList />
 
