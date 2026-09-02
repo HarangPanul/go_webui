@@ -19,6 +19,14 @@ impl Color {
             Color::White => Color::Black,
         }
     }
+
+    /// GTP 프로토콜에서 쓰는 색 표기("B"/"W") - play/genmove 명령 조립용.
+    pub fn gtp_letter(self) -> &'static str {
+        match self {
+            Color::Black => "B",
+            Color::White => "W",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -32,9 +40,23 @@ pub struct MoveInfo {
     pub x: usize,
     pub y: usize,
     pub color: Color,
+    // true면 이 노드는 실제 착수가 아니라 pass. 이 경우 x/y는 의미 없는 값(0, 0)이고
+    // 보드 위 마커/좌표 계산에 절대 쓰이면 안 되므로, snapshot()의 current_children/
+    // last_move는 이 플래그를 보고 pass 노드를 걸러낸다.
+    pub is_pass: bool,
 }
 
 type Stones = Vec<Vec<Option<Color>>>;
+
+// 각 진영이 그 노드까지(자기 자신 포함) 누적으로 잡은 상대 돌 수. Node에 매 수마다
+// 갱신해서 들고 있으므로(부모 값 + 이번 수로 새로 잡은 만큼) 스냅샷을 만들 때 트리를
+// 거슬러 올라가며 다시 셀 필요 없이 바로 읽을 수 있음.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Captures {
+    pub black: u32,
+    pub white: u32,
+}
 
 struct Node {
     parent: Option<usize>,
@@ -42,21 +64,40 @@ struct Node {
     mv: Option<MoveInfo>,
     stones: Stones,
     next_turn: Color,
+    captures: Captures,
 }
 
 // 프런트엔드로 보내는 매 동작 후 보드 상태 스냅샷. 프런트엔드는 이 안의 필드만 보고
 // 그리며, stones 안에 이미 따낸 돌까지 전부 반영되어 있음.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardSnapshot {
     pub size: usize,
     pub stones: Stones,
     pub current_turn: Color,
-    // 현재 노드로 이어진 수(마지막 착수 표시용). 루트면 없음.
+    // 현재 노드로 이어진 수(마지막 착수 표시용). 루트거나 그 수가 pass였으면 없음
+    // (pass는 좌표가 없어 보드 위에 표시할 자리가 없으므로).
     pub last_move: Option<Point>,
+    // 현재 노드로 이어진 수가 pass였는지 - true면 위 last_move는 항상 None. 보드가
+    // "방금 상대가 pass했다"는 걸 표시하는 데 사용(BoardCanvas의 PASS 안내 문구).
+    pub last_move_is_pass: bool,
     // 현재 노드에서 갈라지는 다음 수 후보들(게임 트리 자식) - 보드 위 마커 표시용.
+    // pass로 갈라지는 자식은 좌표가 없으므로 여기서 제외됨(snapshot() 참고).
     pub current_children: Vec<MoveInfo>,
     pub can_go_back: bool,
+    // 게임 트리 arena 안에서 현재 노드의 고유 인덱스. 노드는 절대 재사용되지 않으므로
+    // (remove_last_move도 arena에서 실제로 지우지 않고 부모의 children 목록에서만
+    // 떼어냄) 프런트엔드가 "이 노드의 kata-analyze 결과"를 캐싱하는 안정적인 키로
+    // 쓸 수 있음 - analysisStore가 노드별로 분석 결과를 보관하는 데 사용.
+    pub node_id: usize,
+    // 현재 노드에서 루트까지 이어지는 조상 체인(자기 자신부터 시작, 루트로 갈수록
+    // 뒤쪽). winrate bar가 "이 노드 자체는 아직 분석된 적이 없어도 가장 가까운
+    // 조상의(자기 자신 포함) 분석 결과"를 대신 보여줄 수 있도록 프런트에 노출.
+    pub ancestor_chain: Vec<usize>,
+    // 현재 노드까지 누적으로 흑/백이 각각 잡은 상대 돌 수(포로 수). 뒤로 가기/마지막
+    // 수 제거 시에도 그 노드에 저장된 값을 그대로 읽으므로 항상 "지금 보드에 반영된
+    // 상태" 기준으로 정확함.
+    pub captures: Captures,
 }
 
 fn empty_board(size: usize) -> Stones {
@@ -107,10 +148,13 @@ fn collect_group(stones: &Stones, x: usize, y: usize, size: usize) -> (Vec<(usiz
 
 // 방금 (x, y)에 color 돌을 둔 직후 호출: 사방으로 맞닿은 상대 돌 그룹 중 활로가 0인
 // (완전히 둘러싸인) 그룹을 찾아 판에서 제거(따냄). 상대를 따낸 뒤에도 자신이 방금 둔
-// 돌의 그룹이 활로 0이면(자충수) 그 그룹도 함께 제거.
-fn apply_captures(stones: &mut Stones, x: usize, y: usize, color: Color, size: usize) {
+// 돌의 그룹이 활로 0이면(자충수) 그 그룹도 함께 제거. 반환값은 이번 수로 판에서 실제로
+// 제거된 "상대" 돌 개수(포로 수 누적에 씀) - 자충수로 제거된 자기 돌은 상대가 잡은
+// 것이 아니므로 포함하지 않음.
+fn apply_captures(stones: &mut Stones, x: usize, y: usize, color: Color, size: usize) -> usize {
     let opponent = color.opponent();
     let mut checked = HashSet::new();
+    let mut captured = 0;
 
     for (nx, ny) in neighbors(x, y, size) {
         if stones[ny][nx] != Some(opponent) {
@@ -126,6 +170,7 @@ fn apply_captures(stones: &mut Stones, x: usize, y: usize, color: Color, size: u
         }
 
         if liberties == 0 {
+            captured += group.len();
             for (gx, gy) in group {
                 stones[gy][gx] = None;
             }
@@ -138,6 +183,8 @@ fn apply_captures(stones: &mut Stones, x: usize, y: usize, color: Color, size: u
             stones[gy][gx] = None;
         }
     }
+
+    captured
 }
 
 // 게임 트리: 각 노드는 그 수를 둔(따내기까지 반영된) 직후의 보드 스냅샷을 통째로
@@ -157,6 +204,7 @@ impl GameTree {
             mv: None,
             stones: empty_board(size),
             next_turn: Color::Black,
+            captures: Captures::default(),
         };
         GameTree {
             size,
@@ -171,50 +219,112 @@ impl GameTree {
             .children
             .iter()
             .filter_map(|&id| self.nodes[id].mv)
+            .filter(|m| !m.is_pass)
             .collect();
         BoardSnapshot {
             size: self.size,
             stones: node.stones.clone(),
             current_turn: node.next_turn,
-            last_move: node.mv.map(|m| Point { x: m.x, y: m.y }),
+            last_move: node.mv.filter(|m| !m.is_pass).map(|m| Point { x: m.x, y: m.y }),
+            last_move_is_pass: node.mv.map(|m| m.is_pass).unwrap_or(false),
             current_children,
             can_go_back: node.parent.is_some(),
+            node_id: self.current,
+            ancestor_chain: self.ancestor_chain(),
+            captures: node.captures,
         }
+    }
+
+    // 현재 노드부터 루트까지 부모 포인터를 따라간 노드 id 목록(자기 자신 포함, 가까운
+    // 순서). 트리 깊이만큼만 순회하므로(보드 한 판 = 최대 수백 수) 매 snapshot마다
+    // 계산해도 비용이 무시할 만함.
+    fn ancestor_chain(&self) -> Vec<usize> {
+        let mut chain = Vec::new();
+        let mut cur = Some(self.current);
+        while let Some(id) = cur {
+            chain.push(id);
+            cur = self.nodes[id].parent;
+        }
+        chain
     }
 
     // 빈 칸을 확정하면 착수 -> 게임 트리에 새 노드를 추가(같은 자리·같은 색의 자식이
     // 이미 있으면 그 가지를 재사용). 이미 돌이 있는 칸은 착수할 수 없으므로 아무 동작도
-    // 하지 않음.
-    pub fn confirm_move(&mut self, x: usize, y: usize) {
+    // 하지 않음. 반환값은 실제로 착수(또는 기존 가지로 이동)했는지 여부 - 호출자가 이
+    // 값으로 GTP 엔진에 미러링할지 여부를 판단함(거부된 경우 엔진에 보내면 안 됨).
+    pub fn confirm_move(&mut self, x: usize, y: usize) -> bool {
         if x >= self.size || y >= self.size {
-            return;
+            return false;
         }
         let node = &self.nodes[self.current];
         if node.stones[y][x].is_some() {
-            return;
+            return false;
         }
         let color = node.next_turn;
 
         let existing = node.children.iter().copied().find(
-            |&id| matches!(self.nodes[id].mv, Some(m) if m.x == x && m.y == y && m.color == color),
+            |&id| matches!(self.nodes[id].mv, Some(m) if !m.is_pass && m.x == x && m.y == y && m.color == color),
         );
 
+        if let Some(id) = existing {
+            self.current = id;
+            return true;
+        }
+
+        let mut next_stones = self.nodes[self.current].stones.clone();
+        next_stones[y][x] = Some(color);
+        let captured = apply_captures(&mut next_stones, x, y, color, self.size);
+        let next_turn = color.opponent();
+
+        let mut captures = self.nodes[self.current].captures;
+        match color {
+            Color::Black => captures.black += captured as u32,
+            Color::White => captures.white += captured as u32,
+        }
+
+        let child = Node {
+            parent: Some(self.current),
+            children: Vec::new(),
+            mv: Some(MoveInfo { x, y, color, is_pass: false }),
+            stones: next_stones,
+            next_turn,
+            captures,
+        };
+        let child_id = self.nodes.len();
+        self.nodes.push(child);
+        self.nodes[self.current].children.push(child_id);
+        self.current = child_id;
+        true
+    }
+
+    // 착수 없이 차례만 넘김(pass) -> 게임 트리에 새 노드를 추가(같은 색이 이미 pass한
+    // 자식이 있으면 confirm_move와 마찬가지로 그 가지를 재사용). 보드 상태(stones)는
+    // 그대로 부모에서 물려받고 누적 포로 수도 변하지 않음 - 바뀌는 건 다음 차례뿐.
+    // confirm_move와 달리 실패할 경우가 없으므로(칸을 고를 필요가 없어 항상 가능)
+    // 반환값 없이 바로 트리를 갱신한다.
+    pub fn pass_turn(&mut self) {
+        let node = &self.nodes[self.current];
+        let color = node.next_turn;
+
+        let existing = node.children.iter().copied().find(
+            |&id| matches!(self.nodes[id].mv, Some(m) if m.is_pass && m.color == color),
+        );
         if let Some(id) = existing {
             self.current = id;
             return;
         }
 
-        let mut next_stones = self.nodes[self.current].stones.clone();
-        next_stones[y][x] = Some(color);
-        apply_captures(&mut next_stones, x, y, color, self.size);
+        let stones = self.nodes[self.current].stones.clone();
+        let captures = self.nodes[self.current].captures;
         let next_turn = color.opponent();
 
         let child = Node {
             parent: Some(self.current),
             children: Vec::new(),
-            mv: Some(MoveInfo { x, y, color }),
-            stones: next_stones,
+            mv: Some(MoveInfo { x: 0, y: 0, color, is_pass: true }),
+            stones,
             next_turn,
+            captures,
         };
         let child_id = self.nodes.len();
         self.nodes.push(child);
@@ -247,6 +357,11 @@ impl GameTree {
     pub fn toggle_turn(&mut self) {
         let node = &mut self.nodes[self.current];
         node.next_turn = node.next_turn.opponent();
+    }
+
+    /// 보드 한 변의 칸 수(19/13/9 등). GTP vertex 변환(좌표계 뒤집기)에 필요.
+    pub fn size(&self) -> usize {
+        self.size
     }
 }
 

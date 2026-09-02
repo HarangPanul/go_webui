@@ -20,12 +20,30 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 
+use crate::game::Color;
 use crate::gtp::parser;
 use crate::models::server_profile::ServerProfile;
 use crate::ssh::client::{Channel, ChannelMessage, ClientHandler, SshSession};
 
 const CONNECTION_STATUS_EVENT: &str = "connection-status";
 const KATA_ANALYZE_EVENT: &str = "kata-analyze";
+
+/// kata-analyze 스트림이 (재)시작될 때 GtpSession::set_analysis_context()로 기록해두는
+/// "지금 이 스트림이 어느 게임 트리 노드/색 기준으로 진행 중인지". 매 "info" 라인을
+/// 이 값과 함께 emit해서, 프런트엔드가 노드별로 결과를 정확히 캐싱할 수 있게 한다.
+///
+/// 알려진 한계: kata-analyze를 다시 시작할 때(start_kata_analyze) 이 값을 새 값으로
+/// 즉시 덮어쓰는데, 그 시점에 이전 스트림이 아직 완전히 멈추지 않았다면(엔진이 인터럽트를
+/// 받아 처리하기 전에 이미 큐잉되어 있던 "info" 줄 몇 개) 그 몇 줄이 새 노드/색 기준으로
+/// 잘못 태깅될 수 있다. 다음 kata-analyze 갱신 주기(수백ms) 안에 진짜 새 데이터로 바로
+/// 덮어써지므로 실질적으로는 눈에 띄지 않지만, 완벽히 경합을 없애려면 "이전 스트림의
+/// 종료를 확인한 뒤에만 새 컨텍스트를 적용" 하는 별도의 pending/active 2단계 큐잉이
+/// 필요함(현재는 그 정도 정교함이 필요할 만큼의 이득이 없다고 보고 생략).
+#[derive(Clone, Copy)]
+pub struct AnalysisContext {
+    pub node_id: usize,
+    pub for_color: Color,
+}
 
 #[derive(Serialize, Clone)]
 struct StatusPayload {
@@ -49,6 +67,7 @@ struct Inner {
     pending: PendingQueue,
     reconnect_cancel: Notify,
     stopped: AtomicBool,
+    analysis_context: StdMutex<Option<AnalysisContext>>,
 }
 
 fn fail_all_pending(inner: &Inner, message: &str) {
@@ -87,12 +106,22 @@ impl GtpSession {
             pending: StdMutex::new(VecDeque::new()),
             reconnect_cancel: Notify::new(),
             stopped: AtomicBool::new(false),
+            analysis_context: StdMutex::new(None),
         });
 
         spawn_reader(inner.clone(), ssh.channel);
         emit_status(&app, "connected", None);
 
         Ok(GtpSession { inner })
+    }
+
+    /// kata-analyze를 (재)시작하기 직전에 호출: 이후 도착하는 "info" 라인들을 어느
+    /// 게임 트리 노드/색 기준으로 emit할지 기록한다. 실제 명령 전송은 호출자가 이어서
+    /// send()로 한다(둘을 분리해두는 건 commands::gtp::start_kata_analyze가 "노드 id를
+    /// 정하는 것"과 "명령을 보내는 것" 사이에 다른 잠금 없이 최대한 가깝게 붙여 두기
+    /// 위함).
+    pub fn set_analysis_context(&self, node_id: usize, for_color: Color) {
+        *self.inner.analysis_context.lock().unwrap() = Some(AnalysisContext { node_id, for_color });
     }
 
     /// GTP 명령을 보내고 응답 전체(여러 줄일 수 있음, 빈 줄 이전까지)를 받아온다.
@@ -207,12 +236,35 @@ fn disconnect_reason(exit_status: Option<u32>, stderr_diag: &str) -> String {
     }
 }
 
+/// kata-analyze 결과에 "어느 노드/색 기준인지"를 얹어 프런트엔드로 보내는 이벤트
+/// payload. serde(flatten)으로 KataAnalyzeResult의 필드들이 nodeId/forColor와 같은
+/// 레벨에 나란히 실린다(프런트 `analysisStore`가 이 하나의 이벤트를 통째로 캐싱).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct KataAnalyzeEvent {
+    node_id: usize,
+    for_color: Color,
+    #[serde(flatten)]
+    result: parser::KataAnalyzeResult,
+}
+
 /// 한 줄을 처리: kata-analyze 스트리밍 라인이면 즉시 파싱+emit, 아니면 GTP 응답
 /// 누적 버퍼에 쌓다가 빈 줄에서 대기열 맨 앞을 resolve.
 fn dispatch_line(inner: &Arc<Inner>, response_acc: &mut String, line: &str) {
     if parser::is_analysis_line(line) {
+        // 컨텍스트가 아직 한 번도 설정된 적 없으면(이론상 발생하지 않아야 함 - kata-analyze는
+        // 항상 set_analysis_context() 직후에만 보내므로) 어느 노드 것인지 알 수 없으니
+        // 잘못 태깅하지 않고 그냥 버린다.
+        let Some(ctx) = *inner.analysis_context.lock().unwrap() else {
+            return;
+        };
         if let Some(result) = parser::parse_kata_analyze(line) {
-            let _ = inner.app.emit(KATA_ANALYZE_EVENT, result);
+            let event = KataAnalyzeEvent {
+                node_id: ctx.node_id,
+                for_color: ctx.for_color,
+                result,
+            };
+            let _ = inner.app.emit(KATA_ANALYZE_EVENT, event);
         }
         return;
     }

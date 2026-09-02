@@ -4,6 +4,12 @@
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import SshKeyInput from "./SshKeyInput.svelte";
 
+  // onDone: 저장 성공 또는 취소로 폼이 "끝났을 때" 호출 - SettingsScreen이 이 폼을
+  // "엔진 추가" 버튼 뒤로 숨길 때 사용(폼 자체는 계속 열어둘지 닫을지 모르므로 부모가
+  // 결정). 프로필 목록에서 "수정"을 눌러 편집 모드로 들어온 경우에도 저장/취소하면
+  // 마찬가지로 다시 접힌 상태로 돌아가야 자연스러움.
+  let { onDone }: { onDone?: () => void } = $props();
+
   const DEFAULT_ENGINE_COMMAND = "katago gtp";
 
   let editingId = $state<string | null>(null);
@@ -44,6 +50,7 @@
   function handleCancel() {
     serverProfilesStore.cancelEdit();
     resetForm();
+    onDone?.();
   }
 
   async function handleSubmit(event: SubmitEvent) {
@@ -61,6 +68,7 @@
         engineCommand,
       });
       resetForm();
+      onDone?.();
     } catch (e) {
       error = String(e);
     } finally {
@@ -106,11 +114,9 @@
     <button type="submit" class="primary" disabled={saving}>
       {editingId ? t("settings.saveChanges") : t("settings.saveProfile")}
     </button>
-    {#if editingId}
-      <button type="button" onclick={handleCancel} disabled={saving}>
-        {t("settings.cancelEdit")}
-      </button>
-    {/if}
+    <button type="button" onclick={handleCancel} disabled={saving}>
+      {t("settings.cancelEdit")}
+    </button>
   </div>
 </form>
 

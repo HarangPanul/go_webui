@@ -21,6 +21,12 @@ pub struct KataAnalyzeMove {
 pub struct KataAnalyzeResult {
     pub move_number: u32,
     pub candidates: Vec<KataAnalyzeMove>,
+    /// `kata-analyze ... ownership true`로 요청했을 때만 채워짐(그 외엔 None).
+    /// 보드 전체 지점을 한 줄로 이어붙인 값(row-major, KataGo가 showboard를 출력하는
+    /// 순서와 동일 - 즉 위쪽 줄부터, 각 줄은 왼쪽부터). 값은 [-1, 1] 범위로, 이 줄의
+    /// winrate/scoreLead와 같은 기준(분석 요청 당시 둘 차례였던 색)으로 1에 가까울수록
+    /// 그 색 소유, -1에 가까울수록 상대 소유를 의미.
+    pub ownership: Option<Vec<f64>>,
 }
 
 /// kata-analyze 스트리밍 라인인지 판별. GTP 정규 응답은 항상 `=`/`?`로 시작하므로
@@ -36,10 +42,17 @@ pub fn is_analysis_line(line: &str) -> bool {
 /// 게임 트리의 착수 수와 맞물리는 건 board 자동 mirroring을 붙일 때(Phase 3) 채워 넣을
 /// 지점.
 pub fn parse_kata_analyze(line: &str) -> Option<KataAnalyzeResult> {
-    let candidates: Vec<KataAnalyzeMove> = split_move_blocks(line)
-        .iter()
-        .filter_map(|block| parse_move_block(block))
-        .collect();
+    let mut candidates: Vec<KataAnalyzeMove> = Vec::new();
+    // 마지막 move 블록에서만 의미 있음 - "ownership ..." 같은 줄 전체 단위 트레일링
+    // 필드는 맨 마지막 pv 뒤에만 붙어 나오므로(parse_move_block 참고).
+    let mut trailing: Vec<String> = Vec::new();
+
+    for block in split_move_blocks(line) {
+        if let Some((mv, leftover)) = parse_move_block(&block) {
+            candidates.push(mv);
+            trailing = leftover;
+        }
+    }
 
     if candidates.is_empty() {
         return None;
@@ -48,7 +61,41 @@ pub fn parse_kata_analyze(line: &str) -> Option<KataAnalyzeResult> {
     Some(KataAnalyzeResult {
         move_number: 0,
         candidates,
+        ownership: parse_ownership(&trailing),
     })
+}
+
+/// "ownership <o0> <o1> ..." 트레일링 필드 파싱. "ownership" 키워드를 찾아 그 뒤
+/// 숫자로 파싱되는 토큰들을 끝까지(혹은 파싱 실패 지점까지) 모은다.
+fn parse_ownership(trailing: &[String]) -> Option<Vec<f64>> {
+    let pos = trailing.iter().position(|t| t == "ownership")?;
+    let values: Vec<f64> = trailing[pos + 1..]
+        .iter()
+        .map_while(|t| t.parse::<f64>().ok())
+        .collect();
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
+/// GTP vertex처럼 보이는 토큰인지 판별(pv 좌표 목록을 그 뒤에 이어붙는 다른
+/// 필드(ownership 등)와 구분하는 데 사용). "pass"/"resign" 또는 "글자+숫자"
+/// (예: "Q16") 형태만 인정 - ownership 값 같은 부동소수점 토큰("-0.3" 등)은
+/// 숫자로 시작하므로 걸러진다.
+fn looks_like_vertex(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    if lower == "pass" || lower == "resign" {
+        return true;
+    }
+    let mut chars = token.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    let rest = chars.as_str();
+    !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
 }
 
 /// "info move A ... info move B ..." 한 줄을 "move A ..." / "move B ..." 블록들로 분리.
@@ -61,9 +108,14 @@ fn split_move_blocks(line: &str) -> Vec<String> {
 }
 
 /// "move A visits N winrate F scoreLead F ... pv A B C" 한 블록을 파싱. 알 수 없는
-/// key(ownership/scoreStdev/prior/lcb/order 등, KataGo 버전별로 다를 수 있음)는 값 하나만
+/// key(scoreStdev/prior/lcb/order 등, KataGo 버전별로 다를 수 있음)는 값 하나만
 /// 건너뛰고 무시 — 파싱 자체가 깨지지 않도록 관대하게 처리.
-fn parse_move_block(block: &str) -> Option<KataAnalyzeMove> {
+///
+/// pv 뒤에 좌표로 보이지 않는 토큰이 남아있으면(마지막 move 블록에만 발생 -
+/// "ownership true"로 요청했을 때 줄 맨 끝에 붙는 "ownership <값...>" 같은 줄
+/// 전체 단위 필드) 소비하지 않고 그대로 두 번째 반환값(leftover)으로 돌려준다 -
+/// 호출자(parse_kata_analyze)가 그걸로 ownership을 파싱함.
+fn parse_move_block(block: &str) -> Option<(KataAnalyzeMove, Vec<String>)> {
     let tokens: Vec<&str> = block.split_whitespace().collect();
     let mut idx = 0;
 
@@ -72,6 +124,7 @@ fn parse_move_block(block: &str) -> Option<KataAnalyzeMove> {
     let mut winrate = 0.0f64;
     let mut score_lead = 0.0f64;
     let mut pv: Vec<String> = Vec::new();
+    let mut leftover: Vec<String> = Vec::new();
 
     while idx < tokens.len() {
         match tokens[idx] {
@@ -92,9 +145,13 @@ fn parse_move_block(block: &str) -> Option<KataAnalyzeMove> {
                 idx += 2;
             }
             "pv" => {
-                // pv는 이 블록 끝까지 이어지는 좌표 목록 — 관대하게 나머지 전부 소비.
-                pv = tokens[idx + 1..].iter().map(|s| s.to_string()).collect();
-                break;
+                let mut i = idx + 1;
+                while i < tokens.len() && looks_like_vertex(tokens[i]) {
+                    pv.push(tokens[i].to_string());
+                    i += 1;
+                }
+                leftover = tokens[i..].iter().map(|s| s.to_string()).collect();
+                idx = tokens.len();
             }
             _ => {
                 idx += 2;
@@ -102,13 +159,16 @@ fn parse_move_block(block: &str) -> Option<KataAnalyzeMove> {
         }
     }
 
-    Some(KataAnalyzeMove {
-        r#move: mv?,
-        visits,
-        winrate,
-        score_lead,
-        pv,
-    })
+    Some((
+        KataAnalyzeMove {
+            r#move: mv?,
+            visits,
+            winrate,
+            score_lead,
+            pv,
+        },
+        leftover,
+    ))
 }
 
 #[cfg(test)]
@@ -144,5 +204,27 @@ mod tests {
         assert!(is_analysis_line(
             "info move Q16 visits 1 winrate 0.5 pv Q16"
         ));
+    }
+
+    #[test]
+    fn without_ownership_option_field_is_none() {
+        let line = "info move Q16 visits 123 winrate 0.54 scoreLead 1.2 pv Q16 D4";
+        let result = parse_kata_analyze(line).expect("should parse");
+        assert_eq!(result.ownership, None);
+    }
+
+    #[test]
+    fn parses_trailing_ownership_field_on_last_block_only() {
+        // ownership은 줄 전체 단위 필드라 맨 마지막 move 블록의 pv 뒤에만 붙어 나옴 -
+        // 그 앞쪽 블록들의 파싱/pv 목록은 전혀 영향받지 않아야 함.
+        let line = "info move Q16 visits 123 winrate 0.54 scoreLead 1.2 pv Q16 D4 info move D4 visits 90 winrate 0.49 scoreLead 0.9 pv D4 Q16 ownership 0.1 -0.2 0.05 -1 1";
+        let result = parse_kata_analyze(line).expect("should parse");
+        assert_eq!(result.candidates.len(), 2);
+        assert_eq!(result.candidates[0].pv, vec!["Q16", "D4"]);
+        assert_eq!(result.candidates[1].pv, vec!["D4", "Q16"]);
+        assert_eq!(
+            result.ownership,
+            Some(vec![0.1, -0.2, 0.05, -1.0, 1.0])
+        );
     }
 }

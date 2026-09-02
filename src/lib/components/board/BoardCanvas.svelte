@@ -208,6 +208,23 @@
         const cy = margin + lastMove.y * step;
         drawLastMoveMarker(ctx, cx, cy, stoneRadius, lastStone);
       }
+    } else if (boardStore.lastMoveIsPass) {
+      // 직전 차례가 pass였으면(좌표가 없어 동그라미로 표시할 자리가 없으므로) 보드
+      // 위쪽 가운데에 텍스트로 안내 - 누가 pass했는지는 지금 차례(currentTurn)의
+      // 반대쪽이므로 그걸로 색을 표기함.
+      const passedColor = boardStore.currentTurn === "black" ? "white" : "black";
+      ctx.save();
+      ctx.font = `bold ${Math.round(step * 0.32)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = passedColor === "black" ? "#111111" : "#f2f2f2";
+      ctx.strokeStyle = passedColor === "black" ? "#f2f2f2" : "#111111";
+      ctx.lineWidth = Math.max(1, step * 0.03);
+      const cx = size / 2;
+      const cy = margin * 0.65;
+      ctx.strokeText("PASS", cx, cy);
+      ctx.fillText("PASS", cx, cy);
+      ctx.restore();
     }
 
     // 현재 노드에서 갈라지는 다음 수 후보(게임 트리 자식) 지점 표시
@@ -377,6 +394,7 @@
     boardStore.pendingMove;
     boardStore.currentTurn;
     boardStore.lastMove;
+    boardStore.lastMoveIsPass;
     boardStore.currentChildren;
     backgroundReady;
     stoneReady.black;
