@@ -1,7 +1,7 @@
 <script lang="ts">
   // 배경/격자/실제 돌 렌더링 + 2단계 착수 인터랙션(임시 선택 -> 확정)
   import { boardStore } from "../../stores/board.svelte";
-  import { keybindingsStore } from "../../stores/keybindings.svelte";
+  import { instantMoveStore } from "../../stores/instantMove.svelte";
   // 바둑판 배경: 실제 나무 질감 이미지로 교체 가능하도록 파일에서 로드
   // (현재는 단순 갈색 placeholder, src-tauri/icons와 마찬가지로 추후 실제 에셋으로 교체 예정)
   import boardBackgroundUrl from "../../../assets/board-background.png";
@@ -277,13 +277,31 @@
 
   // 드래그 상태: 누르는 순간부터 손가락/마우스를 따라 미리보기(빈 칸 -> 반투명 돌,
   // 이미 돌이 있는 칸 -> 제거 대상 표시)와 십자선이 계속 갱신됨.
-  // 확정은 여기서 하지 않고 GameControls의 "Confirm Move"/"Remove Stone" 버튼을
-  // 눌렀을 때만 이뤄짐.
+  // 확정은 기본적으로 여기서 하지 않고 GameControls의 "Confirm Move" 버튼(또는 키보드
+  // 단축키)을 눌렀을 때 이뤄지지만, 설정에서 "확인 없이 바로 착수"가 켜져 있으면
+  // 마우스는 누르는 순간(handlePointerDown), 터치스크린은 손을 떼는 순간
+  // (handlePointerUp)에 곧바로 확정한다 - instantMove.svelte.ts 참고. 키보드로 두는
+  // 흐름은 이 설정과 무관하게 항상 별도 확정 키가 필요함.
   let dragging = false;
 
   function handlePointerDown(evt: PointerEvent) {
     const pos = nearestIntersection(evt);
     if (!pos) return;
+
+    // 이미 임시 선택된 지점을 다시 누르면 그 선택을 취소함(별도 취소 버튼 없이도
+    // 취소할 수 있도록).
+    const pending = boardStore.pendingMove;
+    if (pending && pending.x === pos.x && pending.y === pos.y) {
+      boardStore.cancelPending();
+      return;
+    }
+
+    if (instantMoveStore.enabled && evt.pointerType === "mouse") {
+      // 마우스는 드래그 미리보기 없이 누르는 순간 바로 확정
+      boardStore.selectPending(pos.x, pos.y);
+      boardStore.confirmMove();
+      return;
+    }
 
     canvasEl?.setPointerCapture(evt.pointerId);
     dragging = true;
@@ -298,7 +316,15 @@
     boardStore.selectPending(pos.x, pos.y);
   }
 
-  function endDrag() {
+  function handlePointerUp(evt: PointerEvent) {
+    // 터치스크린(펜 포함)에서 "확인 없이 바로 착수"가 켜져 있으면 손을 떼는 순간 확정
+    if (dragging && instantMoveStore.enabled && evt.pointerType !== "mouse") {
+      boardStore.confirmMove();
+    }
+    dragging = false;
+  }
+
+  function handlePointerCancel() {
     dragging = false;
   }
 
@@ -307,7 +333,7 @@
   // (lastMove) 순서로 시작 위치를 정함. 단, 첫 수(보드가 비어있고 이전 수도 없는 경우)는
   // 방향키를 누른 직후 바로 1,1 위치가 되어야 하므로 델타를 적용하지 않고 그 자리에만
   // 위치시킴. 확정은 마우스/터치와 마찬가지로 여기서 하지 않고 GameControls의 Confirm
-  // Move 버튼 또는 Space 키로만 이뤄짐.
+  // Move 버튼 또는 (KeyboardShortcuts.svelte가 처리하는) Space 키로만 이뤄짐.
   function movePendingBy(dx: number, dy: number) {
     if (!boardStore.pendingMove && !boardStore.lastMove) {
       boardStore.selectPending(0, 0);
@@ -320,6 +346,9 @@
     boardStore.selectPending(x, y);
   }
 
+  // 방향키(임시 선택 이동)만 처리 - confirmMove/back/removeLastMove/changeColor 등
+  // Settings에서 재배정 가능한 단축키는 전부 KeyboardShortcuts.svelte(앱 최상단에서
+  // 한 번만 마운트)로 옮겨졌음. 방향키는 재배정 대상이 아니라 여기 그대로 둠.
   function handleKeyDown(evt: KeyboardEvent) {
     // 다른 곳(입력창 등)에 포커스가 있거나 다른 단축키 조합이면 무시
     const target = evt.target as HTMLElement | null;
@@ -343,21 +372,6 @@
         evt.preventDefault();
         movePendingBy(1, 0);
         return;
-    }
-
-    // 착수 확정/색 전환/뒤로 가기/마지막 수 제거는 Settings에서 재배정 가능한 키를 사용
-    if (keybindingsStore.matches("confirmMove", evt.key)) {
-      evt.preventDefault();
-      boardStore.confirmMove();
-    } else if (keybindingsStore.matches("back", evt.key)) {
-      evt.preventDefault();
-      boardStore.goBack();
-    } else if (keybindingsStore.matches("removeLastMove", evt.key)) {
-      evt.preventDefault();
-      boardStore.removeLastMove();
-    } else if (keybindingsStore.matches("changeColor", evt.key)) {
-      evt.preventDefault();
-      boardStore.toggleTurn();
     }
   }
 
@@ -408,8 +422,8 @@
   class="board-layer"
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
-  onpointerup={endDrag}
-  onpointercancel={endDrag}
+  onpointerup={handlePointerUp}
+  onpointercancel={handlePointerCancel}
 ></canvas>
 
 <style>

@@ -11,7 +11,7 @@
 
   const stoneImages = { black: stoneBlackUrl, white: stoneWhiteUrl };
 
-  // KataGo가 둘 색은 흑/백 버튼을 각각 독립적으로 켜고 끔 - 둘 다 켜면 KataGo가 자기
+  // 엔진이 둘 색은 흑/백 버튼을 각각 독립적으로 켜고 끔 - 둘 다 켜면 엔진이 자기
   // 자신과 대국하듯 양쪽을 계속 두고, 둘 다 끄면 자동 착수 없이 사람이 양쪽을 다 둠.
   // 실제 자동 착수(genmove) 로직은 confirmMove() 이후 백엔드
   // (commands::game::confirm_move)가 처리하고, 여기서는 그 설정값만 토글/전송한다.
@@ -165,16 +165,32 @@
   <button type="button" onclick={() => boardStore.passMove()}>
     {t("game.pass")}
   </button>
+  <!-- 게임 트리에서 부모/자식 노드로 이동. 텍스트 대신 화살표로 표시해 키보드 없이도
+  직관적으로 누를 수 있게 함 - 실제 동작(단축키 "["/"]" 포함)은 boardStore.goBack()/
+  goForward()와 동일. 자식 쪽은 여러 갈래가 있어도 가장 마지막으로 방문했던 자식으로
+  이동함(game::GameTree::go_forward 참고). -->
   <button
     type="button"
+    title={t("game.back")}
+    aria-label={t("game.back")}
     disabled={!boardStore.canGoBack}
     onclick={() => boardStore.goBack()}
   >
-    {t("game.back")}
+    ←
+  </button>
+  <button
+    type="button"
+    title={t("game.goForward")}
+    aria-label={t("game.goForward")}
+    disabled={!boardStore.canGoForward}
+    onclick={() => boardStore.goForward()}
+  >
+    →
   </button>
   <!-- 이미 돌이 있는 칸을 가리키고 있을 때도 버튼 자체는 항상 그대로 표시하되,
   confirmMove()가 그 경우 아무 동작도 하지 않으므로(임의의 돌 제거 기능 폐지) 눌러도
-  아무 효과가 없음 -->
+  아무 효과가 없음. 취소는 별도 버튼 없이 BoardCanvas에서 현재 임시 선택 지점을 다시
+  누르면 됨(cancelPending 호출) - board/BoardCanvas.svelte 참고. -->
   <button
     class="primary"
     type="button"
@@ -182,13 +198,6 @@
     onclick={() => boardStore.confirmMove()}
   >
     {t("game.confirmMove")}
-  </button>
-  <button
-    type="button"
-    disabled={!boardStore.pendingMove}
-    onclick={() => boardStore.cancelPending()}
-  >
-    {t("game.cancel")}
   </button>
   <button
     class="danger"
@@ -230,7 +239,7 @@
     color: #d66;
   }
 
-  /* KataGo 자동 착수(흑/백)/Analysis가 켜져 있을 때 눈에 띄게 표시 */
+  /* 엔진 자동 착수(흑/백)/Analysis가 켜져 있을 때 눈에 띄게 표시 */
   button.toggle.active {
     border-color: #3a7bd5;
     color: #3a7bd5;

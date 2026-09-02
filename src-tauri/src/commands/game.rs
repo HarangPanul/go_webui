@@ -72,6 +72,19 @@ pub async fn go_back(state: State<'_, AppState>) -> Result<BoardSnapshot, String
     Ok(state.game.lock().unwrap().snapshot())
 }
 
+// go_back의 반대 방향: 게임 트리에서 자식 노드로 이동(앞으로 가기). 이동한 수가
+// 있으면(자식이 하나라도 있었으면) 그 수를 엔진에도 `play`로 재생해 로컬/엔진 보드를
+// 맞춘다(go_back의 undo 미러링과 대칭 - autoplay::sync_forward_to_engine 참고).
+// 이미 리프 노드라 이동할 자식이 없었으면 엔진에는 아무것도 보내지 않는다.
+#[tauri::command]
+pub async fn go_forward(state: State<'_, AppState>) -> Result<BoardSnapshot, String> {
+    let mv = state.game.lock().unwrap().go_forward();
+    if let Some(mv) = mv {
+        autoplay::sync_forward_to_engine(state.inner(), mv).await;
+    }
+    Ok(state.game.lock().unwrap().snapshot())
+}
+
 #[tauri::command]
 pub async fn remove_last_move(state: State<'_, AppState>) -> Result<BoardSnapshot, String> {
     let could_go_back = {

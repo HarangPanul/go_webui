@@ -9,7 +9,7 @@
 //   필요하다.
 use tauri::{AppHandle, Emitter};
 
-use crate::game::Color;
+use crate::game::{Color, MoveInfo};
 use crate::gtp::coords;
 use crate::state::AppState;
 
@@ -84,6 +84,32 @@ pub async fn sync_undo_to_engine(state: &AppState) {
         return;
     };
     let _ = session.send("undo").await;
+}
+
+/// go_forward로 로컬 게임 트리에서 이미 존재하는 자식 노드로 이동할 때, 그 수를
+/// 연결된 GTP 엔진에도 `play`로 그대로 재생해 로컬/엔진 보드를 다시 맞춘다. go_back
+/// 으로 되돌아갔다가(엔진에는 이미 `undo`가 반영되어 있음) 다시 앞으로 갈 때 필요한
+/// 동기화. sync_move_to_engine과 달리 이 수는 이미 로컬 트리에 존재하던 걸 그대로
+/// "재생"하는 것뿐이라 request_engine_move_if_needed(자동 응수)는 이어서 부르지
+/// 않는다 - 그 다음 수도 이미 로컬 트리에 기록되어 있을 수 있는데, 여기서 또
+/// genmove를 부르면 그 위에 엉뚱한 새 가지가 생겨버린다. best-effort - 연결이
+/// 없거나 실패해도 로컬 게임 트리 탐색 자체는 계속돼야 하므로 에러는 무시한다.
+pub async fn sync_forward_to_engine(state: &AppState, mv: MoveInfo) {
+    let Some(session) = ({
+        let guard = state.gtp_session.lock().await;
+        guard.clone()
+    }) else {
+        return;
+    };
+
+    let cmd = if mv.is_pass {
+        format!("play {} pass", mv.color.gtp_letter())
+    } else {
+        let size = state.game.lock().unwrap().size();
+        let vertex = coords::to_vertex(mv.x, mv.y, size);
+        format!("play {} {}", mv.color.gtp_letter(), vertex)
+    };
+    let _ = session.send(&cmd).await;
 }
 
 /// 다음 차례가 엔진에 배정된 색(state.engine_colors)인 동안 계속 `genmove`로 응수를

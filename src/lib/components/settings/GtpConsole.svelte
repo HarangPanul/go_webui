@@ -52,7 +52,6 @@
 </script>
 
 <div class="gtp-console">
-  <h3>{t("settings.gtpConsole")}</h3>
   <div class="log">
     {#each log as entry, i (i)}
       <p class="log-entry {entry.kind}">{entry.text}</p>
@@ -77,11 +76,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: 0.9rem;
   }
 
   .log {

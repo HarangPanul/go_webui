@@ -30,6 +30,7 @@ pub fn run() {
             commands::game::confirm_move,
             commands::game::pass_move,
             commands::game::go_back,
+            commands::game::go_forward,
             commands::game::remove_last_move,
             commands::game::toggle_turn,
         ])

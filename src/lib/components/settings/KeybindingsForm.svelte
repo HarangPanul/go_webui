@@ -1,14 +1,25 @@
 <script lang="ts">
-  // 착수 확정/색 전환/뒤로 가기/마지막 수 제거 단축키를 원하는 키로 재배정하는 UI.
-  // "키 변경" 버튼을 누르면 다음에 누르는 키 하나가 그 액션에 등록됨 (Esc로 취소).
+  // 착수 확정/색 전환/뒤로 가기/마지막 수 제거 + 엔진 연결/흑·백 자동 착수/Analysis/
+  // Ownership/설정 열기 단축키를 원하는 키로 재배정하는 UI. "키 변경" 버튼을 누르면
+  // 다음에 누르는 키 하나가 그 액션에 등록됨(Esc로 취소) - 여기서 등록할 수 있는 건
+  // 항상 키 하나뿐이라, engineConnect 등 기본값이 "ec"처럼 두 글자인 액션을 여기서
+  // 다시 등록하면 한 글자짜리로 바뀐다(실제 매칭 로직은 길이에 상관없이 동작하므로
+  // 문제는 없음 - keybindings.svelte.ts 참고).
   import { t } from "../../i18n";
   import { keybindingsStore, type KeyAction } from "../../stores/keybindings.svelte";
 
-  const ACTIONS: { action: KeyAction; labelKey: "game.confirmMove" | "game.switchColor" | "game.back" | "game.removeLastMove" }[] = [
+  const ACTIONS: { action: KeyAction; labelKey: Parameters<typeof t>[0] }[] = [
     { action: "confirmMove", labelKey: "game.confirmMove" },
     { action: "changeColor", labelKey: "game.switchColor" },
     { action: "back", labelKey: "game.back" },
+    { action: "goForward", labelKey: "game.goForward" },
     { action: "removeLastMove", labelKey: "game.removeLastMove" },
+    { action: "engineConnect", labelKey: "game.engineConnect" },
+    { action: "engineWhite", labelKey: "game.engineColor.white" },
+    { action: "engineBlack", labelKey: "game.engineColor.black" },
+    { action: "analysis", labelKey: "game.analysis" },
+    { action: "ownership", labelKey: "game.ownership" },
+    { action: "openSettings", labelKey: "settings.title" },
   ];
 
   // 지금 다음 키 입력을 기다리고 있는 액션 (없으면 null)
@@ -25,8 +36,9 @@
     listeningFor = action;
   }
 
-  // capture 단계에서 가로채므로 BoardCanvas의 window keydown 핸들러(기존 키 동작)보다
-  // 먼저 실행되고, stopPropagation으로 그쪽까지 전달되는 것도 막음
+  // capture 단계에서 가로채므로 BoardCanvas/KeyboardShortcuts의 window keydown
+  // 핸들러(기존 키 동작, 둘 다 bubble 단계)보다 먼저 실행되고, stopPropagation으로
+  // 그쪽까지 전달되는 것도 막음
   function handleCaptureKeydown(evt: KeyboardEvent) {
     if (!listeningFor) return;
     evt.preventDefault();
@@ -51,7 +63,6 @@
 </script>
 
 <div class="keybindings-form">
-  <h3>{t("settings.keybindings.title")}</h3>
   {#each ACTIONS as { action, labelKey } (action)}
     <div class="row">
       <span class="label">{t(labelKey)}</span>
@@ -84,11 +95,6 @@
     flex-direction: column;
     gap: 8px;
     width: 100%;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: 1em;
   }
 
   .row {

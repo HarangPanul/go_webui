@@ -1,11 +1,17 @@
 <script lang="ts">
-  // 서버 프로필 등록/전환 + SSH Key 입력 + GTP 콘솔 + 키보드 단축키 화면
+  // 서버 프로필 등록/전환 + SSH Key 입력 + GTP 콘솔 + 키보드 단축키 화면.
+  // 서버 프로필(목록+추가 버튼)만 최상단에 항상 펼쳐두고, 나머지(대국 설정/키보드
+  // 단축키/GTP 콘솔)는 CollapsibleSection으로 각각 접어 넣어 화면이 한 번에 너무
+  // 길게 늘어지지 않게 함 - ServerProfileForm이 "엔진 추가" 버튼 뒤에 숨는 것과
+  // 같은 패턴을 영역별로 확장한 것.
   import { t } from "../i18n";
   import ServerProfileList from "../components/settings/ServerProfileList.svelte";
   import ServerProfileForm from "../components/settings/ServerProfileForm.svelte";
   import GtpConsole from "../components/settings/GtpConsole.svelte";
   import KeybindingsForm from "../components/settings/KeybindingsForm.svelte";
   import KomiForm from "../components/settings/KomiForm.svelte";
+  import InstantMoveForm from "../components/settings/InstantMoveForm.svelte";
+  import CollapsibleSection from "../components/settings/CollapsibleSection.svelte";
   import { serverProfilesStore } from "../stores/serverProfiles.svelte";
 
   let { onClose }: { onClose: () => void } = $props();
@@ -41,13 +47,19 @@
   {/if}
 
   <hr />
-  <KomiForm />
 
-  <hr />
-  <GtpConsole />
+  <CollapsibleSection title={t("settings.gameSettings")}>
+    <KomiForm />
+    <InstantMoveForm />
+  </CollapsibleSection>
 
-  <hr />
-  <KeybindingsForm />
+  <CollapsibleSection title={t("settings.keybindings.title")}>
+    <KeybindingsForm />
+  </CollapsibleSection>
+
+  <CollapsibleSection title={t("settings.gtpConsole")}>
+    <GtpConsole />
+  </CollapsibleSection>
 
   <button class="close-button" onclick={onClose}>Close</button>
 </section>

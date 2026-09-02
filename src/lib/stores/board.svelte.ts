@@ -7,8 +7,8 @@ import { listen } from "@tauri-apps/api/event";
 
 export type Stone = "black" | "white" | null;
 
-// KataGo가 흑/백을 각각 자동으로 둘지 여부(색상별 독립 on/off). 둘 다 켜져 있으면
-// KataGo가 자기 자신과 대국하듯 양쪽을 계속 두고, 둘 다 꺼져 있으면 자동 착수 없이
+// 엔진이 흑/백을 각각 자동으로 둘지 여부(색상별 독립 on/off). 둘 다 켜져 있으면
+// 엔진이 자기 자신과 대국하듯 양쪽을 계속 두고, 둘 다 꺼져 있으면 자동 착수 없이
 // 사람이 양쪽을 다 둠 - Rust state::EngineColors와 필드 대응(serde camelCase).
 export interface EngineColors {
   black: boolean;
@@ -31,6 +31,8 @@ interface BoardSnapshot {
   lastMoveIsPass: boolean;
   currentChildren: MoveInfo[];
   canGoBack: boolean;
+  // 현재 노드에 자식이 하나 이상 있는지("]"/앞으로 가기 버튼·단축키 활성화 여부).
+  canGoForward: boolean;
   // 게임 트리 arena 안에서 이 노드의 고유 인덱스. 절대 재사용되지 않으므로
   // analysisStore가 노드별 kata-analyze 결과를 캐싱하는 키로 사용.
   nodeId: number;
@@ -51,6 +53,7 @@ function emptySnapshot(): BoardSnapshot {
     lastMoveIsPass: false,
     currentChildren: [],
     canGoBack: false,
+    canGoForward: false,
     nodeId: 0,
     ancestorChain: [0],
     captures: { black: 0, white: 0 },
@@ -104,6 +107,11 @@ function createBoardStore() {
     get canGoBack() {
       return snapshot.canGoBack;
     },
+    // 현재 노드에 자식이 하나 이상 있으면(=한 번이라도 그 지점에서 착수/pass한 적이
+    // 있으면) 앞으로 갈 수 있음
+    get canGoForward() {
+      return snapshot.canGoForward;
+    },
     // analysisStore가 노드별 kata-analyze 결과를 조회/캐싱하는 키로 사용.
     get nodeId() {
       return snapshot.nodeId;
@@ -118,7 +126,7 @@ function createBoardStore() {
     get captures() {
       return snapshot.captures;
     },
-    // KataGo가 흑/백을 각각 자동으로 둘지 여부 - confirmMove() 후 백엔드가 이 값을
+    // 엔진이 흑/백을 각각 자동으로 둘지 여부 - confirmMove() 후 백엔드가 이 값을
     // 보고 필요하면 자동으로 genmove까지 반영해 돌려주므로, 프론트는 이 값을 버튼
     // on/off 표시에만 사용하면 됨.
     get engineColors() {
@@ -164,6 +172,13 @@ function createBoardStore() {
     // 게임 트리에서 부모 노드로 이동(뒤로 가기)
     async goBack() {
       snapshot = await invoke<BoardSnapshot>("go_back");
+      pendingMove = null;
+    },
+    // 게임 트리에서 자식 노드로 이동(앞으로 가기). 여러 갈래가 있으면 가장 마지막으로
+    // 방문했던 자식으로(한 번도 안 가봤으면 가장 최근에 만들어진 자식으로) 이동함 -
+    // 실제 판단은 백엔드(game::GameTree::go_forward)가 함.
+    async goForward() {
+      snapshot = await invoke<BoardSnapshot>("go_forward");
       pendingMove = null;
     },
     // 현재 노드(=가장 마지막으로 둔 수)를 게임 트리에서 통째로 삭제하고 그 부모로 이동

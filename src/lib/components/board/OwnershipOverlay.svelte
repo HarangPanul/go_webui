@@ -69,12 +69,15 @@
         const raw = ownership[y * boardSize + x];
         const blackOwnership = forColor === "black" ? raw : -raw;
 
-        // blackOwnership: 1 -> 검정(0,0,0), -1 -> 흰색(255,255,255), 0 -> 중간 회색
-        const v = Math.round((1 - blackOwnership) * 127.5);
+        // 그레이스케일 그라데이션 대신 흑/백 중 실제로 우세한 쪽 색 하나만 칠하고,
+        // 그 확신도(|blackOwnership|, 0=경합~1=확정)를 그대로 alpha로 씀 - 그래서
+        // 가운데(경합 지점, 0 근처)일수록 투명해지고 확정적인 곳일수록 진하게 보임.
+        const color = blackOwnership >= 0 ? "0, 0, 0" : "255, 255, 255";
+        const alpha = Math.abs(blackOwnership);
         const cx = margin + x * step;
         const cy = margin + y * step;
 
-        ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
+        ctx.fillStyle = `rgba(${color}, ${alpha})`;
         ctx.fillRect(cx - half, cy - half, squareSide, squareSide);
       }
     }

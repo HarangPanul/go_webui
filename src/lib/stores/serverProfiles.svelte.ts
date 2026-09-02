@@ -11,6 +11,16 @@ function createServerProfilesStore() {
   // ServerProfileForm 참고)
   let editingProfile = $state<ServerProfile | null>(null);
 
+  async function refresh() {
+    profiles = await invoke<ServerProfile[]>("list_profiles");
+  }
+
+  // Settings 화면(ServerProfileList)을 한 번도 연 적이 없어도 "엔진 연결" 키보드
+  // 단축키(KeyboardShortcuts.svelte)가 등록된 프로필 목록을 바로 쓸 수 있도록
+  // store 생성 시점에 한 번 미리 불러온다. ServerProfileList도 마운트 시 별도로
+  // refresh()를 부르지만 멱등이라 문제 없음.
+  refresh();
+
   return {
     get profiles() {
       return profiles;
@@ -21,9 +31,7 @@ function createServerProfilesStore() {
     get editingProfile() {
       return editingProfile;
     },
-    async refresh() {
-      profiles = await invoke<ServerProfile[]>("list_profiles");
-    },
+    refresh,
     // id 없이 주면 신규 생성, id를 주면 기존 프로필을 덮어씀
     async save(input: NewServerProfile) {
       const saved = await invoke<ServerProfile>("save_profile", { input });

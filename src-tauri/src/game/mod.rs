@@ -61,6 +61,12 @@ pub struct Captures {
 struct Node {
     parent: Option<usize>,
     children: Vec<usize>,
+    // 이 노드에서 가장 최근에 이동해 들어갔던 자식(go_forward가 "[" "]" 단축키로
+    // 자식 쪽으로 이동할 때 어느 가지를 고를지 결정하는 데 씀). confirm_move/
+    // pass_turn으로 새 수를 두거나 기존 가지로 들어갈 때, 그리고 go_forward 자체가
+    // 실행될 때 갱신되고, go_back(자식->부모)으로는 바뀌지 않는다 - 그래야
+    // "뒤로 갔다가 다시 앞으로" 했을 때 원래 보던 가지로 정확히 되돌아간다.
+    last_child: Option<usize>,
     mv: Option<MoveInfo>,
     stones: Stones,
     next_turn: Color,
@@ -85,6 +91,8 @@ pub struct BoardSnapshot {
     // pass로 갈라지는 자식은 좌표가 없으므로 여기서 제외됨(snapshot() 참고).
     pub current_children: Vec<MoveInfo>,
     pub can_go_back: bool,
+    // 현재 노드에 자식이 하나 이상 있는지("]"/앞으로 가기 버튼 활성화 여부).
+    pub can_go_forward: bool,
     // 게임 트리 arena 안에서 현재 노드의 고유 인덱스. 노드는 절대 재사용되지 않으므로
     // (remove_last_move도 arena에서 실제로 지우지 않고 부모의 children 목록에서만
     // 떼어냄) 프런트엔드가 "이 노드의 kata-analyze 결과"를 캐싱하는 안정적인 키로
@@ -201,6 +209,7 @@ impl GameTree {
         let root = Node {
             parent: None,
             children: Vec::new(),
+            last_child: None,
             mv: None,
             stones: empty_board(size),
             next_turn: Color::Black,
@@ -229,6 +238,7 @@ impl GameTree {
             last_move_is_pass: node.mv.map(|m| m.is_pass).unwrap_or(false),
             current_children,
             can_go_back: node.parent.is_some(),
+            can_go_forward: !node.children.is_empty(),
             node_id: self.current,
             ancestor_chain: self.ancestor_chain(),
             captures: node.captures,
@@ -267,6 +277,7 @@ impl GameTree {
         );
 
         if let Some(id) = existing {
+            self.nodes[self.current].last_child = Some(id);
             self.current = id;
             return true;
         }
@@ -285,6 +296,7 @@ impl GameTree {
         let child = Node {
             parent: Some(self.current),
             children: Vec::new(),
+            last_child: None,
             mv: Some(MoveInfo { x, y, color, is_pass: false }),
             stones: next_stones,
             next_turn,
@@ -293,6 +305,7 @@ impl GameTree {
         let child_id = self.nodes.len();
         self.nodes.push(child);
         self.nodes[self.current].children.push(child_id);
+        self.nodes[self.current].last_child = Some(child_id);
         self.current = child_id;
         true
     }
@@ -310,6 +323,7 @@ impl GameTree {
             |&id| matches!(self.nodes[id].mv, Some(m) if m.is_pass && m.color == color),
         );
         if let Some(id) = existing {
+            self.nodes[self.current].last_child = Some(id);
             self.current = id;
             return;
         }
@@ -321,6 +335,7 @@ impl GameTree {
         let child = Node {
             parent: Some(self.current),
             children: Vec::new(),
+            last_child: None,
             mv: Some(MoveInfo { x: 0, y: 0, color, is_pass: true }),
             stones,
             next_turn,
@@ -329,6 +344,7 @@ impl GameTree {
         let child_id = self.nodes.len();
         self.nodes.push(child);
         self.nodes[self.current].children.push(child_id);
+        self.nodes[self.current].last_child = Some(child_id);
         self.current = child_id;
     }
 
@@ -338,6 +354,24 @@ impl GameTree {
         if let Some(parent) = self.nodes[self.current].parent {
             self.current = parent;
         }
+    }
+
+    // 게임 트리에서 자식 노드로 이동(앞으로 가기). 이 노드에서 가장 최근에 갔었던
+    // 자식(last_child)이 있으면 그쪽으로, 한 번도 자식으로 가본 적이 없으면(예:
+    // 막 새로 갈라진 지점) 가장 최근에 만들어진 자식으로 이동한다. 자식이 하나도
+    // 없으면(리프 노드) 아무 동작도 하지 않는다. 반환값은 실제로 이동했다면 그
+    // 전이를 만든 수(색/좌표/pass 여부) - 호출자가 이 값으로 GTP 엔진에도 같은 수를
+    // `play`로 재생해 로컬과 엔진 보드를 다시 맞출 수 있음.
+    pub fn go_forward(&mut self) -> Option<MoveInfo> {
+        let node = &self.nodes[self.current];
+        let target = node
+            .last_child
+            .filter(|id| node.children.contains(id))
+            .or_else(|| node.children.last().copied())?;
+
+        self.nodes[self.current].last_child = Some(target);
+        self.current = target;
+        self.nodes[target].mv
     }
 
     // 현재 노드(=가장 마지막으로 둔 수) 자체를 게임 트리에서 통째로 삭제하고 그 부모로
@@ -350,6 +384,13 @@ impl GameTree {
         };
         let removed = self.current;
         self.nodes[parent].children.retain(|&id| id != removed);
+        // last_child가 지금 지운 노드를 가리키고 있었다면 그대로 두면 go_forward가
+        // 더 이상 부모의 children 목록에 없는(도달 불가능해진) 노드를 가리키는
+        // 매달린 참조가 된다 - go_forward가 children.contains로 걸러내긴 하지만,
+        // 굳이 무효한 값을 남겨둘 이유가 없으므로 여기서 바로 비워둠.
+        if self.nodes[parent].last_child == Some(removed) {
+            self.nodes[parent].last_child = None;
+        }
         self.current = parent;
     }
 

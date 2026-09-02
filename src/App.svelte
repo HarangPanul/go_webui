@@ -3,6 +3,7 @@
   // (화면 수가 적어 svelte-spa-router 등은 도입하지 않음)
   import GameScreen from "./lib/screens/GameScreen.svelte";
   import SettingsScreen from "./lib/screens/SettingsScreen.svelte";
+  import KeyboardShortcuts from "./lib/components/common/KeyboardShortcuts.svelte";
 
   let activeScreen: "game" | "settings" = $state("game");
 
@@ -22,6 +23,8 @@
 </script>
 
 <svelte:window onpopstate={() => (activeScreen = "game")} />
+
+<KeyboardShortcuts {activeScreen} onOpenSettings={openSettings} />
 
 {#if activeScreen === "game"}
   <GameScreen onOpenSettings={openSettings} />

@@ -15,15 +15,25 @@
   import GameControls from "../components/game/GameControls.svelte";
   import WinrateGraph from "../components/game/WinrateGraph.svelte";
   import CaptureCounter from "../components/game/CaptureCounter.svelte";
+  import { boardStore } from "../stores/board.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
+
+  // 바둑판 바깥의 빈 여백(패딩/가운데 정렬로 남는 공간)을 클릭/터치하면 임시 선택을
+  // 취소한다. GoBoard/WinrateGraph 등 실제 자식 요소를 클릭했을 때는 target이
+  // board-area 자신이 아니므로(각자 자기 클릭을 먼저 처리) 여기서는 무시된다.
+  function handleBoardAreaClick(evt: MouseEvent) {
+    if (evt.target === evt.currentTarget) {
+      boardStore.cancelPending();
+    }
+  }
 </script>
 
 <div class="game-screen">
   <TopBar {onOpenSettings} />
 
   <div class="game-body">
-    <div class="board-area">
+    <div class="board-area" onclick={handleBoardAreaClick}>
       <GoBoard />
       <WinrateGraph />
     </div>
