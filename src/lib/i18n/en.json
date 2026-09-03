@@ -22,6 +22,7 @@
   "settings.passphraseWarning": "Passphrase-protected keys are not supported yet",
   "settings.sshKeyDetected": "Detected local keys (~/.ssh)",
   "settings.sshKeyDetectPlaceholder": "Select a key to load…",
+  "settings.language": "Language",
   "settings.gameSettings": "Game Settings",
   "settings.komi": "Komi",
   "settings.instantMove": "Instant Move (no confirm)",

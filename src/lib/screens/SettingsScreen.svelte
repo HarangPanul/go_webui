@@ -11,6 +11,7 @@
   import KeybindingsForm from "../components/settings/KeybindingsForm.svelte";
   import KomiForm from "../components/settings/KomiForm.svelte";
   import InstantMoveForm from "../components/settings/InstantMoveForm.svelte";
+  import LanguageForm from "../components/settings/LanguageForm.svelte";
   import CollapsibleSection from "../components/settings/CollapsibleSection.svelte";
   import { serverProfilesStore } from "../stores/serverProfiles.svelte";
   import { handleRovingArrowKeys } from "../utils/rovingFocus";
@@ -64,6 +65,10 @@
   <CollapsibleSection title={t("settings.gameSettings")}>
     <KomiForm />
     <InstantMoveForm />
+  </CollapsibleSection>
+
+  <CollapsibleSection title={t("settings.language")}>
+    <LanguageForm />
   </CollapsibleSection>
 
   <CollapsibleSection title={t("settings.keybindings.title")}>
