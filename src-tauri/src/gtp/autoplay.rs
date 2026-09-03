@@ -24,14 +24,11 @@ pub async fn sync_move_to_engine(
     x: usize,
     y: usize,
 ) {
-    let Some(session) = ({
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    }) else {
+    let Some(session) = state.active_session().await else {
         return;
     };
 
-    let size = state.game.lock().unwrap().size();
+    let size = state.with_game(|game| game.size());
     let vertex = coords::to_vertex(x, y, size);
     let cmd = format!("play {} {}", color.gtp_letter(), vertex);
 
@@ -51,10 +48,7 @@ pub async fn sync_move_to_engine(
 /// [`request_engine_move_if_needed`]로 자동 응수를 이어간다. sync_move_to_engine과
 /// 마찬가지로 best-effort.
 pub async fn sync_pass_to_engine(state: &AppState, app: &AppHandle, color: Color) {
-    let Some(session) = ({
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    }) else {
+    let Some(session) = state.active_session().await else {
         return;
     };
 
@@ -77,10 +71,7 @@ pub async fn sync_pass_to_engine(state: &AppState, app: &AppHandle, color: Color
 /// ownership이 뒤집혀 보이는 문제가 생긴다. sync_move_to_engine과 마찬가지로
 /// best-effort - 연결이 없거나 실패해도 로컬 대국은 계속돼야 하므로 에러는 무시한다.
 pub async fn sync_undo_to_engine(state: &AppState) {
-    let Some(session) = ({
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    }) else {
+    let Some(session) = state.active_session().await else {
         return;
     };
     let _ = session.send("undo").await;
@@ -95,17 +86,14 @@ pub async fn sync_undo_to_engine(state: &AppState) {
 /// genmove를 부르면 그 위에 엉뚱한 새 가지가 생겨버린다. best-effort - 연결이
 /// 없거나 실패해도 로컬 게임 트리 탐색 자체는 계속돼야 하므로 에러는 무시한다.
 pub async fn sync_forward_to_engine(state: &AppState, mv: MoveInfo) {
-    let Some(session) = ({
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    }) else {
+    let Some(session) = state.active_session().await else {
         return;
     };
 
     let cmd = if mv.is_pass {
         format!("play {} pass", mv.color.gtp_letter())
     } else {
-        let size = state.game.lock().unwrap().size();
+        let size = state.with_game(|game| game.size());
         let vertex = coords::to_vertex(mv.x, mv.y, size);
         format!("play {} {}", mv.color.gtp_letter(), vertex)
     };
@@ -119,19 +107,14 @@ pub async fn sync_forward_to_engine(state: &AppState, mv: MoveInfo) {
 /// 프론트가 한 수씩 실시간으로 그릴 수 있게 한다.
 pub async fn request_engine_move_if_needed(state: &AppState, app: &AppHandle) {
     loop {
-        let (current_turn, size) = {
-            let game = state.game.lock().unwrap();
-            (game.snapshot().current_turn, game.size())
-        };
-        let should_play = state.engine_colors.lock().unwrap().enabled(current_turn);
+        let (current_turn, size) =
+            state.with_game(|game| (game.snapshot().current_turn, game.size()));
+        let should_play = state.engine_colors().enabled(current_turn);
         if !should_play {
             return;
         }
 
-        let Some(session) = ({
-            let guard = state.gtp_session.lock().await;
-            guard.clone()
-        }) else {
+        let Some(session) = state.active_session().await else {
             return;
         };
 
@@ -155,8 +138,8 @@ pub async fn request_engine_move_if_needed(state: &AppState, app: &AppHandle) {
             // 로컬 게임 트리에도 pass를 그대로 반영 - 그래야 이어서 반대쪽 색도
             // 엔진에 배정되어 있는 경우(자기 자신과 대국) 그 차례로 넘어가 계속
             // 진행되고, 사람이 이어받을 때도 로컬/엔진 보드가 어긋나지 않는다.
-            state.game.lock().unwrap().pass_turn();
-            let snapshot = state.game.lock().unwrap().snapshot();
+            state.with_game(|game| game.pass_turn());
+            let snapshot = state.game_snapshot();
             let _ = app.emit("board-updated", snapshot);
             let _ = app.emit("engine-passed", ());
             continue; // 다음 차례도 엔진 담당이면(둘 다 자동) 계속 이어감
@@ -165,14 +148,14 @@ pub async fn request_engine_move_if_needed(state: &AppState, app: &AppHandle) {
         let Some((ex, ey)) = coords::from_vertex(reply, size) else {
             return;
         };
-        let moved = state.game.lock().unwrap().confirm_move(ex, ey);
+        let moved = state.with_game(|game| game.confirm_move(ex, ey));
         if !moved {
             // 엔진이 로컬 트리 기준으로 이미 돌이 있는 칸을 알려줌 - 보드 상태가
             // 어긋난 것이므로 더 진행하지 않고 멈춘다.
             return;
         }
 
-        let snapshot = state.game.lock().unwrap().snapshot();
+        let snapshot = state.game_snapshot();
         let _ = app.emit("board-updated", snapshot);
     }
 }

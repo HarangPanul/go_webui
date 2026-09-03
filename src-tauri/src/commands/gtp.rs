@@ -13,10 +13,7 @@ pub async fn send_gtp_command(
 ) -> Result<String, AppError> {
     // 락을 쥔 채로 세션의 send().await(원격 응답 대기)까지 들고 가면 그동안 다른 모든
     // SSH/GTP 커맨드가 block되므로, Arc만 clone해서 즉시 락을 해제한 뒤 락 밖에서 보낸다.
-    let session = {
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    };
+    let session = state.active_session().await;
 
     let session = session.ok_or(AppError::NotConnected)?;
     session.send(&command).await
@@ -34,12 +31,9 @@ pub async fn start_kata_analyze(
     interval_centiseconds: u32,
     state: State<'_, AppState>,
 ) -> Result<String, AppError> {
-    let snapshot = state.game.lock().unwrap().snapshot();
+    let snapshot = state.game_snapshot();
 
-    let session = {
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    };
+    let session = state.active_session().await;
     let session = session.ok_or(AppError::NotConnected)?;
 
     session.set_analysis_context(snapshot.node_id, snapshot.current_turn);
@@ -75,13 +69,7 @@ pub async fn set_engine_color(
     app: AppHandle,
 ) -> Result<(), AppError> {
     let color = parse_color(&color)?;
-    {
-        let mut colors = state.engine_colors.lock().unwrap();
-        match color {
-            Color::Black => colors.black = enabled,
-            Color::White => colors.white = enabled,
-        }
-    }
+    state.set_engine_color(color, enabled);
 
     if enabled {
         autoplay::request_engine_move_if_needed(state.inner(), &app).await;
@@ -92,12 +80,12 @@ pub async fn set_engine_color(
 
 #[tauri::command]
 pub fn get_engine_colors(state: State<AppState>) -> EngineColors {
-    *state.engine_colors.lock().unwrap()
+    state.engine_colors()
 }
 
 #[tauri::command]
 pub fn get_komi(state: State<AppState>) -> f64 {
-    *state.komi.lock().unwrap()
+    state.komi()
 }
 
 /// Settings에서 덤을 바꿀 때 호출. 값을 저장해두는 것과 별개로, 지금 연결된 엔진이
@@ -106,12 +94,9 @@ pub fn get_komi(state: State<AppState>) -> f64 {
 /// 보낸다.
 #[tauri::command]
 pub async fn set_komi(komi: f64, state: State<'_, AppState>) -> Result<(), AppError> {
-    *state.komi.lock().unwrap() = komi;
+    state.set_komi_value(komi);
 
-    let session = {
-        let guard = state.gtp_session.lock().await;
-        guard.clone()
-    };
+    let session = state.active_session().await;
     if let Some(session) = session {
         let _ = session.send(&format!("komi {komi}")).await;
     }

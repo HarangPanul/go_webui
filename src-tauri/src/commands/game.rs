@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 #[tauri::command]
 pub fn get_board_state(state: State<AppState>) -> BoardSnapshot {
-    state.game.lock().unwrap().snapshot()
+    state.game_snapshot()
 }
 
 #[tauri::command]
@@ -26,33 +26,36 @@ pub async fn confirm_move(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<BoardSnapshot, AppError> {
-    let color = state.game.lock().unwrap().snapshot().current_turn;
-    let moved = state.game.lock().unwrap().confirm_move(x, y);
+    let color = state.game_snapshot().current_turn;
+    let moved = state.with_game(|game| game.confirm_move(x, y));
 
     if moved {
-        let snapshot = state.game.lock().unwrap().snapshot();
+        let snapshot = state.game_snapshot();
         let _ = app.emit("board-updated", snapshot);
 
         autoplay::sync_move_to_engine(state.inner(), &app, color, x, y).await;
     }
 
-    Ok(state.game.lock().unwrap().snapshot())
+    Ok(state.game_snapshot())
 }
 
 // confirm_move와 마찬가지로 사람의 pass를 먼저 "board-updated"로 즉시 반영한 뒤에
 // 엔진 미러링/자동 응수를 시작한다 - 이유도 동일(엔진 응답을 기다리는 동안 화면이
 // 멈춰 보이지 않도록).
 #[tauri::command]
-pub async fn pass_move(state: State<'_, AppState>, app: AppHandle) -> Result<BoardSnapshot, AppError> {
-    let color = state.game.lock().unwrap().snapshot().current_turn;
-    state.game.lock().unwrap().pass_turn();
+pub async fn pass_move(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<BoardSnapshot, AppError> {
+    let color = state.game_snapshot().current_turn;
+    state.with_game(|game| game.pass_turn());
 
-    let snapshot = state.game.lock().unwrap().snapshot();
+    let snapshot = state.game_snapshot();
     let _ = app.emit("board-updated", snapshot);
 
     autoplay::sync_pass_to_engine(state.inner(), &app, color).await;
 
-    Ok(state.game.lock().unwrap().snapshot())
+    Ok(state.game_snapshot())
 }
 
 // go_back/remove_last_move 둘 다 "로컬 트리를 한 수 되돌리기"라 엔진에도 `undo`를
@@ -61,16 +64,15 @@ pub async fn pass_move(state: State<'_, AppState>, app: AppHandle) -> Result<Boa
 // 실제로 되돌릴 수가 없었으면(can_go_back == false) undo를 보내지 않는다.
 #[tauri::command]
 pub async fn go_back(state: State<'_, AppState>) -> Result<BoardSnapshot, AppError> {
-    let could_go_back = {
-        let mut game = state.game.lock().unwrap();
+    let could_go_back = state.with_game(|game| {
         let could_go_back = game.snapshot().can_go_back;
         game.go_back();
         could_go_back
-    };
+    });
     if could_go_back {
         autoplay::sync_undo_to_engine(state.inner()).await;
     }
-    Ok(state.game.lock().unwrap().snapshot())
+    Ok(state.game_snapshot())
 }
 
 // go_back의 반대 방향: 게임 트리에서 자식 노드로 이동(앞으로 가기). 이동한 수가
@@ -79,30 +81,30 @@ pub async fn go_back(state: State<'_, AppState>) -> Result<BoardSnapshot, AppErr
 // 이미 리프 노드라 이동할 자식이 없었으면 엔진에는 아무것도 보내지 않는다.
 #[tauri::command]
 pub async fn go_forward(state: State<'_, AppState>) -> Result<BoardSnapshot, AppError> {
-    let mv = state.game.lock().unwrap().go_forward();
+    let mv = state.with_game(|game| game.go_forward());
     if let Some(mv) = mv {
         autoplay::sync_forward_to_engine(state.inner(), mv).await;
     }
-    Ok(state.game.lock().unwrap().snapshot())
+    Ok(state.game_snapshot())
 }
 
 #[tauri::command]
 pub async fn remove_last_move(state: State<'_, AppState>) -> Result<BoardSnapshot, AppError> {
-    let could_go_back = {
-        let mut game = state.game.lock().unwrap();
+    let could_go_back = state.with_game(|game| {
         let could_go_back = game.snapshot().can_go_back;
         game.remove_last_move();
         could_go_back
-    };
+    });
     if could_go_back {
         autoplay::sync_undo_to_engine(state.inner()).await;
     }
-    Ok(state.game.lock().unwrap().snapshot())
+    Ok(state.game_snapshot())
 }
 
 #[tauri::command]
 pub fn toggle_turn(state: State<AppState>) -> BoardSnapshot {
-    let mut game = state.game.lock().unwrap();
-    game.toggle_turn();
-    game.snapshot()
+    state.with_game(|game| {
+        game.toggle_turn();
+        game.snapshot()
+    })
 }

@@ -30,21 +30,17 @@ pub async fn connect_ssh(
     // 바로 반영해둔다 - 그래야 이후 대국 내내 화면에 보이는 덤과 엔진이 실제로 쓰는
     // 덤이 어긋나지 않는다. best-effort: 이 시점에 실패해도 연결 자체는 그대로 둔다
     // (사용자가 Settings에서 값을 바꾸면 set_komi가 다시 시도함).
-    let komi = *state.komi.lock().unwrap();
+    let komi = state.komi();
     let _ = session.send(&format!("komi {komi}")).await;
 
-    let mut guard = state.gtp_session.lock().await;
-    *guard = Some(Arc::new(session));
+    state.set_session(Some(Arc::new(session))).await;
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), AppError> {
-    let session = {
-        let mut guard = state.gtp_session.lock().await;
-        guard.take()
-    };
+    let session = state.take_session().await;
 
     if let Some(session) = session {
         session.disconnect().await;
