@@ -10,6 +10,7 @@ use crate::ssh::local_keys::{self, LocalSshKeyInfo};
 use crate::state::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn connect_ssh(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -19,6 +20,7 @@ pub async fn connect_ssh(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), AppError> {
     ConnectionService::new(&state).disconnect().await
 }
@@ -27,12 +29,14 @@ pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), AppError> 
 /// 돌려준다. 모바일에서는 항상 에러 - 프론트는 이걸 "이 플랫폼은 미지원"으로 받아
 /// 감지 UI 자체를 숨기면 됨.
 #[tauri::command]
+#[specta::specta]
 pub async fn list_local_ssh_keys() -> Result<Vec<LocalSshKeyInfo>, AppError> {
     local_keys::list()
 }
 
 /// `list_local_ssh_keys`가 돌려준 경로 중 하나를 골랐을 때 실제 key 원문을 읽어온다.
 #[tauri::command]
+#[specta::specta]
 pub async fn load_local_ssh_key(path: String) -> Result<String, AppError> {
     local_keys::load(&path)
 }

@@ -24,7 +24,7 @@ fn default_engine_command() -> String {
 
 /// `save_profile` 커맨드 입력값. `id`가 `None`이면 신규 생성(uuid v4 발급),
 /// `Some`이면 기존 프로필을 덮어씀(upsert).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveProfileInput {
     pub id: Option<String>,
@@ -39,7 +39,7 @@ pub struct SaveProfileInput {
 
 /// 프론트엔드로 내려가는 안전한 요약 정보. private key 원문은 포함하지 않음
 /// (`src/lib/types/serverProfile.ts`의 `ServerProfile`과 필드 대응).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerProfileInfo {
     pub id: String,

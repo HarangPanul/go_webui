@@ -14,7 +14,7 @@ use crate::ssh::keystore::detect_passphrase;
 
 /// 프론트로 내려가는 감지된 key 요약 정보. key 원문은 포함하지 않고, 사용자가
 /// 하나를 선택하면 그때 `load`로 원문을 따로 가져온다.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalSshKeyInfo {
     pub name: String,

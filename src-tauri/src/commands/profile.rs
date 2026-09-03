@@ -6,12 +6,14 @@ use crate::models::server_profile::{SaveProfileInput, ServerProfileInfo};
 use crate::ssh::keystore;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn list_profiles(app: AppHandle) -> Result<Vec<ServerProfileInfo>, AppError> {
     let profiles = keystore::list(&app)?;
     Ok(profiles.iter().map(ServerProfileInfo::from).collect())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn save_profile(
     app: AppHandle,
     input: SaveProfileInput,
@@ -21,11 +23,13 @@ pub async fn save_profile(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_profile(app: AppHandle, id: String) -> Result<(), AppError> {
     keystore::delete(&app, &id)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn switch_profile(app: AppHandle, profile_id: String) -> Result<(), AppError> {
     keystore::set_active(&app, &profile_id)
 }

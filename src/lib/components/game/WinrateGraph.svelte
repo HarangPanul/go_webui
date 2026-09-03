@@ -28,7 +28,11 @@
       const cached = analysisStore.forNode(nodeId);
       const top = cached?.result.candidates[0];
       if (!top) continue;
-      return cached.forColor === "black" ? top.winrate : 1 - top.winrate;
+      // winrate는 이론상 항상 값이 있지만(NaN/Infinity를 JSON이 표현 못 해 Rust
+      // f64가 타입상 number | null로 내려옴), 실제로 null이 오는 경우는 없으므로
+      // 0으로 안전하게 처리.
+      const winrate = top.winrate ?? 0;
+      return cached.forColor === "black" ? winrate : 1 - winrate;
     }
     return 0.5;
   });
@@ -45,7 +49,8 @@
       const cached = analysisStore.forNode(nodeId);
       const top = cached?.result.candidates[0];
       if (!top) continue;
-      return cached.forColor === "black" ? top.scoreLead : -top.scoreLead;
+      const scoreLead = top.scoreLead ?? 0;
+      return cached.forColor === "black" ? scoreLead : -scoreLead;
     }
     return 0;
   });

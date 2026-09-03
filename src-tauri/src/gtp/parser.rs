@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct KataAnalyzeMove {
     pub r#move: String,
@@ -16,7 +16,7 @@ pub struct KataAnalyzeMove {
     pub pv: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct KataAnalyzeResult {
     pub move_number: u32,

@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { appErrorMessage } from "../appError";
 
 export type ConnectionStatus =
   | "disconnected"
@@ -47,7 +48,7 @@ function createConnectionStore() {
         // 백엔드가 "error" 이벤트도 emit하지만, invoke 자체가 reject되는 경우(프로필
         // 없음 등 연결 시도 이전 단계의 에러)를 위해 여기서도 상태를 반영
         status = "error";
-        lastError = String(e);
+        lastError = appErrorMessage(e);
         throw e;
       }
     },

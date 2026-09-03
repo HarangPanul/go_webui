@@ -1,6 +1,7 @@
 <script lang="ts">
   // 서버 프로필 등록/수정 폼 (name, host, port, username, engineCommand, key)
   import { t } from "../../i18n";
+  import { appErrorMessage } from "../../appError";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import SshKeyInput from "./SshKeyInput.svelte";
 
@@ -70,7 +71,7 @@
       resetForm();
       onDone?.();
     } catch (e) {
-      error = String(e);
+      error = appErrorMessage(e);
     } finally {
       saving = false;
     }

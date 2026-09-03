@@ -5,7 +5,7 @@
 use serde::Serialize;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Color {
     Black,
@@ -29,13 +29,14 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
 pub struct Point {
     pub x: usize,
     pub y: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct MoveInfo {
     pub x: usize,
     pub y: usize,
@@ -51,7 +52,7 @@ type Stones = Vec<Vec<Option<Color>>>;
 // 각 진영이 그 노드까지(자기 자신 포함) 누적으로 잡은 상대 돌 수. Node에 매 수마다
 // 갱신해서 들고 있으므로(부모 값 + 이번 수로 새로 잡은 만큼) 스냅샷을 만들 때 트리를
 // 거슬러 올라가며 다시 셀 필요 없이 바로 읽을 수 있음.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Captures {
     pub black: u32,
@@ -75,7 +76,7 @@ struct Node {
 
 // 프런트엔드로 보내는 매 동작 후 보드 상태 스냅샷. 프런트엔드는 이 안의 필드만 보고
 // 그리며, stones 안에 이미 따낸 돌까지 전부 반영되어 있음.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardSnapshot {
     pub size: usize,

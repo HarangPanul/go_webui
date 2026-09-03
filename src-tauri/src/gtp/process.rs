@@ -46,8 +46,10 @@ pub struct AnalysisContext {
     pub for_color: Color,
 }
 
-#[derive(Serialize, Clone)]
-struct StatusPayload {
+// "connection-status" 이벤트 payload. 커맨드 어디에도 인자/반환값으로 나타나지
+// 않아 lib.rs에서 `.typ::<>()`로 직접 등록해야 bindings.ts에 타입이 노출된다.
+#[derive(Serialize, Clone, specta::Type)]
+pub struct StatusPayload {
     status: &'static str,
     message: Option<String>,
 }
@@ -240,9 +242,11 @@ fn disconnect_reason(exit_status: Option<u32>, stderr_diag: &str) -> String {
 /// kata-analyze 결과에 "어느 노드/색 기준인지"를 얹어 프런트엔드로 보내는 이벤트
 /// payload. serde(flatten)으로 KataAnalyzeResult의 필드들이 nodeId/forColor와 같은
 /// 레벨에 나란히 실린다(프런트 `analysisStore`가 이 하나의 이벤트를 통째로 캐싱).
-#[derive(Serialize, Clone)]
+// "kata-analyze" 이벤트 payload. StatusPayload와 마찬가지로 커맨드 시그니처에
+// 나타나지 않아 lib.rs에서 `.typ::<>()`로 직접 등록한다.
+#[derive(Serialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
-struct KataAnalyzeEvent {
+pub struct KataAnalyzeEvent {
     node_id: usize,
     for_color: Color,
     #[serde(flatten)]

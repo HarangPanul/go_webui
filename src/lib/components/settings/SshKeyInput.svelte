@@ -10,6 +10,7 @@
   // 모든 플랫폼에서 그대로 동작.
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "../../i18n";
+  import { appErrorMessage } from "../../appError";
   import type { LocalSshKeyInfo } from "../../types/serverProfile";
 
   let { value = $bindable("") }: { value?: string } = $props();
@@ -34,7 +35,7 @@
     try {
       value = await invoke<string>("load_local_ssh_key", { path });
     } catch (e) {
-      loadError = String(e);
+      loadError = appErrorMessage(e);
     }
   }
 </script>

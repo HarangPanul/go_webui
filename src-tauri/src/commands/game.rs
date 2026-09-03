@@ -10,11 +10,13 @@ use crate::services::game_service::GameService;
 use crate::state::AppState;
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_board_state(state: State<AppState>) -> BoardSnapshot {
     state.game_snapshot()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn confirm_move(
     x: usize,
     y: usize,
@@ -25,6 +27,7 @@ pub async fn confirm_move(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pass_move(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -33,6 +36,7 @@ pub async fn pass_move(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn go_back(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -41,6 +45,7 @@ pub async fn go_back(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn go_forward(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -49,6 +54,7 @@ pub async fn go_forward(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn remove_last_move(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -57,6 +63,7 @@ pub async fn remove_last_move(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn toggle_turn(state: State<AppState>, app: AppHandle) -> BoardSnapshot {
     GameService::new(&state, &app).toggle_turn()
 }

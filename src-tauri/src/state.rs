@@ -10,7 +10,7 @@ use crate::gtp::process::GtpSession;
 /// 메인 화면에서 사용자가 지정한 "KataGo가 자동으로 둘 색". 흑/백이 서로 독립적인
 /// on/off 스위치라, 둘 다 켜면 KataGo가 자기 자신과 대국(self-play)하듯 양쪽을 모두
 /// 계속 두고, 둘 다 끄면 자동 착수 없이 사람이 양쪽을 다 둔다(기존 동작과 동일).
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineColors {
     pub black: bool,

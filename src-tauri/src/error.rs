@@ -3,21 +3,20 @@
 // 이제는 Rust 쪽에서 종류별로 갈라진 enum이라 앞으로 새 코드를 짤 때 `match`로
 // 안전하게 분기할 수 있다.
 //
-// Serialize는 일부러 derive하지 않고 Display(= 아래 각 variant의 #[error(...)]
-// 메시지) 문자열 하나만 직렬화하도록 손으로 구현했다 - 프런트엔드가 지금
-// invoke()가 reject한 값을 항상 순수 문자열로 취급하고 있어(`String(e)`로 그대로
-// 표시, GtpConsole.svelte/ServerProfileForm.svelte/SshKeyInput.svelte/
-// connection.svelte.ts 등) 그 계약을 이번 단계에서는 그대로 유지해야 한다. `kind`
-// 태그를 프런트에 구조화된 형태로 노출하는 건 tauri-specta를 실제로 연결하고
-// 프런트도 함께 구조화된 에러를 소비하도록 고치는 단계(리팩터 계획의 6단계)에서
-// 한 번에 다시 설계한다 - 지금 어중간하게 태그를 노출하면 프런트는 여전히
-// 문자열만 기대하는데 값은 객체로 바뀌어(특히 필드가 없는 variant는 메시지조차
-// 없는 `{"kind":"NotConnected"}` 형태가 됨) 에러 문구가 "[object Object]"로
-// 보이는 회귀가 생긴다.
+// 6단계(tauri-specta 연결)에서 구조화된 형태로 프런트에 노출하도록 다시 설계함:
+// `{ kind, message }` 객체로 직렬화하되, message는 여전히 각 variant의 Display(=
+// #[error(...)] 메시지) 문자열 그대로라 화면에 보이는 문구 자체는 한 글자도 바뀌지
+// 않는다 - GtpConsole.svelte/ServerProfileForm.svelte/SshKeyInput.svelte/
+// connection.svelte.ts의 catch(e) 쪽만 `String(e)` 대신 `e.message`를 읽도록
+// 맞춰 고쳤다(appError.ts::appErrorMessage 참고). `kind`는 지금 당장 이 태그로
+// 분기하는 프런트 코드는 없지만, 이제 최소한 그게 가능은 하다.
 //
-// 각 variant의 메시지(Display)는 기존에 각 실패 지점에서 손으로 만들던 한국어
-// 에러 문자열을 그대로 옮긴 것 - 사용자에게 보여줄 문구 자체는 바뀌지 않았고,
-// "어떤 종류의 실패인지"만 Rust 타입으로 드러나게 한 것.
+// Serialize/specta::Type을 derive하지 않고 손으로 구현한 이유: variant마다 실려
+// 있는 필드가 다르고(유닛 variant는 아예 없음) 실제로 내보내고 싶은 값은 그 필드가
+// 아니라 Display가 계산해주는 메시지라서, derive만으로는 "모든 variant가 항상
+// {kind, message} 모양"이 되게 만들 수 없다. 대신 그 모양 그대로인 내부 helper
+// 구조체(AppErrorPayload)에 Serialize/specta::Type을 derive해두고 AppError는 거기로
+// 위임한다.
 use serde::{Serialize, Serializer};
 
 #[derive(Debug, thiserror::Error)]
@@ -50,8 +49,47 @@ pub enum AppError {
     Other(String),
 }
 
+impl AppError {
+    /// 프런트로 내려가는 `kind` 태그. variant 이름 그대로라 새 variant를 추가해도
+    /// 여기 한 줄만 늘리면 된다.
+    fn kind(&self) -> &'static str {
+        match self {
+            AppError::NotConnected => "NotConnected",
+            AppError::SshConnectFailed(_) => "SshConnectFailed",
+            AppError::SshAuthFailed(_) => "SshAuthFailed",
+            AppError::PassphraseUnsupported => "PassphraseUnsupported",
+            AppError::GtpSendFailed(_) => "GtpSendFailed",
+            AppError::ProfileNotFound(_) => "ProfileNotFound",
+            AppError::InvalidInput(_) => "InvalidInput",
+            AppError::Io(_) => "Io",
+            AppError::Other(_) => "Other",
+        }
+    }
+}
+
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        AppErrorPayload {
+            kind: self.kind(),
+            message: self.to_string(),
+        }
+        .serialize(serializer)
+    }
+}
+
+/// AppError가 실제로 직렬화되는 모양(위 Serialize 참고) - specta::Type을 이 구조체에
+/// derive해두고 AppError는 여기로 위임(아래 `impl specta::Type for AppError`)해서,
+/// bindings.ts에 손으로 쓴 직렬화와 정확히 일치하는 `{ kind: string; message: string }`
+/// 타입이 나오게 한다.
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+struct AppErrorPayload {
+    kind: &'static str,
+    message: String,
+}
+
+impl specta::Type for AppError {
+    fn definition(types: &mut specta::Types) -> specta::datatype::DataType {
+        AppErrorPayload::definition(types)
     }
 }

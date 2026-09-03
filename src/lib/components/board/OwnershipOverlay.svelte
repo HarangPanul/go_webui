@@ -52,7 +52,10 @@
     for (const nodeId of boardStore.ancestorChain) {
       const cached = analysisStore.forNode(nodeId);
       if (cached?.result.ownership) {
-        return { ownership: cached.result.ownership, forColor: cached.forColor };
+        // 각 지점 값도 이론상 항상 있지만(winrate와 같은 이유로 number | null) 실제로
+        // null이 오는 경우는 없으므로 0(경합 지점과 동일하게 취급)으로 안전하게 처리.
+        const ownership = cached.result.ownership.map((v) => v ?? 0);
+        return { ownership, forColor: cached.forColor };
       }
     }
     return null;

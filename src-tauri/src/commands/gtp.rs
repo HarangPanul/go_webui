@@ -7,6 +7,7 @@ use crate::services::engine_sync;
 use crate::state::{AppState, EngineColors};
 
 #[tauri::command]
+#[specta::specta]
 pub async fn send_gtp_command(
     state: State<'_, AppState>,
     command: String,
@@ -27,6 +28,7 @@ pub async fn send_gtp_command(
 /// 보드 위치가 바뀔 때마다(사람 착수든 엔진 자동 응수든) 이 커맨드를 다시 호출해
 /// 스트림을 새 위치 기준으로 재시작한다.
 #[tauri::command]
+#[specta::specta]
 pub async fn start_kata_analyze(
     interval_centiseconds: u32,
     state: State<'_, AppState>,
@@ -62,6 +64,7 @@ fn parse_color(s: &str) -> Result<Color, AppError> {
 /// 엔진 차례면 즉시 시작한다. GTP 콘솔로 보내는 수동 명령은 이 설정과 무관하게 항상
 /// 그대로 동작한다.
 #[tauri::command]
+#[specta::specta]
 pub async fn set_engine_color(
     color: String,
     enabled: bool,
@@ -79,11 +82,13 @@ pub async fn set_engine_color(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_engine_colors(state: State<AppState>) -> EngineColors {
     state.engine_colors()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_komi(state: State<AppState>) -> f64 {
     state.komi()
 }
@@ -93,6 +98,7 @@ pub fn get_komi(state: State<AppState>) -> f64 {
 /// 계산됨). 연결이 없으면 저장만 해두고, connect_ssh가 다음 연결 시 이 값을 그대로
 /// 보낸다.
 #[tauri::command]
+#[specta::specta]
 pub async fn set_komi(komi: f64, state: State<'_, AppState>) -> Result<(), AppError> {
     state.set_komi_value(komi);
 

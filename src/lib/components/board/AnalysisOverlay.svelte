@@ -110,7 +110,10 @@
 
     // 표시되는 후보들 기준 상대 스케일 - 전부 같은 승률이면(후보가 하나뿐이거나
     // 완전히 동률) 나눗셈이 0/0이 되지 않도록 그런 경우엔 전부 최고색(t=1)으로 고정.
-    const winrates = spots.map((c) => c.winrate);
+    // winrate는 이론상 항상 값이 있지만(NaN/Infinity를 JSON이 표현 못 해 Rust f64가
+    // 타입상 number | null로 내려옴), 실제로 null이 오는 경우는 없으므로 0으로
+    // 안전하게 처리.
+    const winrates = spots.map((c) => c.winrate ?? 0);
     const minWinrate = Math.min(...winrates);
     const maxWinrate = Math.max(...winrates);
     const winrateRange = maxWinrate - minWinrate;
@@ -129,7 +132,9 @@
       const cy = margin + vertex.y * step;
 
       const t =
-        winrateRange === 0 ? 1 : (candidate.winrate - minWinrate) / winrateRange;
+        winrateRange === 0
+          ? 1
+          : ((candidate.winrate ?? 0) - minWinrate) / winrateRange;
 
       ctx.save();
       ctx.globalAlpha = 0.85;
@@ -147,10 +152,14 @@
       ctx.shadowBlur = step * 0.06;
 
       ctx.font = `bold ${Math.round(step * 0.24)}px sans-serif`;
-      ctx.fillText(`${(candidate.winrate * 100).toFixed(0)}%`, cx, cy - step * 0.18);
+      ctx.fillText(
+        `${((candidate.winrate ?? 0) * 100).toFixed(0)}%`,
+        cx,
+        cy - step * 0.18,
+      );
 
       ctx.font = `${Math.round(step * 0.17)}px sans-serif`;
-      ctx.fillText(formatScoreLead(candidate.scoreLead), cx, cy + step * 0.05);
+      ctx.fillText(formatScoreLead(candidate.scoreLead ?? 0), cx, cy + step * 0.05);
 
       ctx.font = `${Math.round(step * 0.15)}px sans-serif`;
       ctx.fillText(formatVisits(candidate.visits), cx, cy + step * 0.27);

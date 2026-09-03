@@ -19,7 +19,7 @@
 //   않으므로 winrate bar가 5:5로 되돌아가지 않는다 - 새 게임을 시작하는 등 명시적으로
 //   reset()을 호출할 때만 비워진다.
 import { listen } from "@tauri-apps/api/event";
-import type { KataAnalyzeEvent, KataAnalyzeResult } from "../types/gtp";
+import type { KataAnalyzeEvent, KataAnalyzeResult } from "../generated/bindings";
 import { boardStore } from "./board.svelte";
 
 interface NodeAnalysis {

@@ -5,8 +5,9 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { t } from "../../i18n";
+  import { appErrorMessage } from "../../appError";
   import { connectionStore } from "../../stores/connection.svelte";
-  import type { KataAnalyzeResult } from "../../types/gtp";
+  import type { KataAnalyzeResult } from "../../generated/bindings";
 
   interface LogEntry {
     kind: "sent" | "received" | "analysis" | "error";
@@ -20,7 +21,7 @@
   listen<KataAnalyzeResult>("kata-analyze", (event) => {
     const top = event.payload.candidates[0];
     const text = top
-      ? `info: ${event.payload.candidates.length} candidates, top ${top.move} winrate=${top.winrate.toFixed(3)} visits=${top.visits}`
+      ? `info: ${event.payload.candidates.length} candidates, top ${top.move} winrate=${(top.winrate ?? 0).toFixed(3)} visits=${top.visits}`
       : "info: (empty)";
     log.push({ kind: "analysis", text });
   });
@@ -34,7 +35,7 @@
       const response = await invoke<string>("send_gtp_command", { command: cmd });
       log.push({ kind: "received", text: response || "(empty response)" });
     } catch (e) {
-      log.push({ kind: "error", text: String(e) });
+      log.push({ kind: "error", text: appErrorMessage(e) });
     } finally {
       sending = false;
       command = "";
