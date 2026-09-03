@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::error::AppError;
 use crate::game::Color;
-use crate::gtp::autoplay;
+use crate::services::engine_sync;
 use crate::state::{AppState, EngineColors};
 
 #[tauri::command]
@@ -72,7 +72,7 @@ pub async fn set_engine_color(
     state.set_engine_color(color, enabled);
 
     if enabled {
-        autoplay::request_engine_move_if_needed(state.inner(), &app).await;
+        engine_sync::request_engine_move_if_needed(state.inner(), &app).await;
     }
 
     Ok(())

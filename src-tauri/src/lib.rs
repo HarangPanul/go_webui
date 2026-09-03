@@ -3,6 +3,7 @@ mod error;
 mod game;
 mod gtp;
 mod models;
+mod services;
 mod ssh;
 mod state;
 
