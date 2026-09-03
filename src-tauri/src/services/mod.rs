@@ -2,3 +2,4 @@
 // 모아둔다. state가 services를 import하지 않으므로 game <-> gtp/state였던 기존 순환
 // 의존이 구조적으로 재발할 수 없다.
 pub mod engine_sync;
+pub mod game_service;
