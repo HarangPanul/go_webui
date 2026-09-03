@@ -4,31 +4,13 @@
   // (instantMove.svelte.ts / BoardCanvas.svelte 참고).
   import { t } from "../../i18n";
   import { instantMoveStore } from "../../stores/instantMove.svelte";
+  import FormField from "../ui/FormField.svelte";
+  import Checkbox from "../ui/Checkbox.svelte";
 </script>
 
-<div class="instant-move-form">
-  <label for="instant-move-checkbox">{t("settings.instantMove")}</label>
-  <input
-    id="instant-move-checkbox"
-    type="checkbox"
+<FormField label={t("settings.instantMove")} layout="row">
+  <Checkbox
     checked={instantMoveStore.enabled}
     onchange={(evt) => instantMoveStore.set(evt.currentTarget.checked)}
   />
-</div>
-
-<style>
-  .instant-move-form {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  label {
-    flex: 1 1 auto;
-  }
-
-  input[type="checkbox"] {
-    width: 20px;
-    height: 20px;
-  }
-</style>
+</FormField>

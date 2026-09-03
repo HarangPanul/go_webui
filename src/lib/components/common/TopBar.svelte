@@ -2,6 +2,7 @@
   // 상단 바: 앱 타이틀 + SSH/GTP 연결 상태 표시 + 설정 진입 버튼
   import { connectionStore } from "../../stores/connection.svelte";
   import { t } from "../../i18n";
+  import Button from "../ui/Button.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
@@ -20,9 +21,9 @@
     <span class="status status-{connectionStore.status}">
       {t(statusKey[connectionStore.status])}
     </span>
-    <button type="button" class="settings-button" onclick={onOpenSettings}>
+    <Button class="settings-button" onclick={onOpenSettings}>
       {t("settings.title")}
-    </button>
+    </Button>
   </div>
 </header>
 
@@ -32,10 +33,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: var(--space-4) var(--space-6);
     /* Android 상태 바(노치/카메라 컷아웃 포함)와 겹치지 않도록 안전 영역만큼 위쪽 여백 추가 */
-    padding-top: calc(8px + env(safe-area-inset-top, 0px));
-    gap: 8px;
+    padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
+    gap: var(--space-4);
   }
 
   .title {
@@ -45,7 +46,7 @@
   .right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-6);
   }
 
   .status {
@@ -53,25 +54,21 @@
     opacity: 0.8;
   }
 
-  .settings-button {
-    padding: 4px 10px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
+  :global(.settings-button) {
+    padding: var(--space-2) var(--space-5);
     font-size: 0.85rem;
   }
 
   .status-connected {
-    color: #2e8b57;
+    color: var(--color-primary);
   }
 
   .status-connecting,
   .status-reconnecting {
-    color: #d9a441;
+    color: var(--color-warning);
   }
 
   .status-error {
-    color: #c0392b;
+    color: var(--color-danger);
   }
 </style>

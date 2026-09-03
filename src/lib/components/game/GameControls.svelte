@@ -8,6 +8,7 @@
   import { gtpStore } from "../../stores/gtp.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
+  import Button from "../ui/Button.svelte";
   import stoneBlackUrl from "../../../assets/stone-black.png";
   import stoneWhiteUrl from "../../../assets/stone-white.png";
 
@@ -106,107 +107,95 @@
 </script>
 
 <div class="game-controls">
-  <button
+  <Button
+    shape="circle"
     class="color-toggle"
-    type="button"
     title={t("game.switchColor")}
     aria-label={t("game.switchColor")}
     onclick={() => gameTreeStore.toggleTurn()}
   >
     <img src={stoneImages[gameTreeStore.currentTurn]} alt={gameTreeStore.currentTurn} />
-  </button>
-  <button
-    class="toggle"
-    class:active={engineColorsStore.engineColors.black}
-    type="button"
+  </Button>
+  <Button
+    active={engineColorsStore.engineColors.black}
     title={t("game.engineColor.black")}
     aria-pressed={engineColorsStore.engineColors.black}
     onclick={() => toggleEngineColor("black")}
   >
     {t("game.engineColor.black")}
-  </button>
-  <button
-    class="toggle"
-    class:active={engineColorsStore.engineColors.white}
-    type="button"
+  </Button>
+  <Button
+    active={engineColorsStore.engineColors.white}
     title={t("game.engineColor.white")}
     aria-pressed={engineColorsStore.engineColors.white}
     onclick={() => toggleEngineColor("white")}
   >
     {t("game.engineColor.white")}
-  </button>
-  <button
-    class="toggle"
-    class:active={analysisStore.showAnalysis}
-    type="button"
+  </Button>
+  <Button
+    active={analysisStore.showAnalysis}
     title={t("game.analysis")}
     aria-pressed={analysisStore.showAnalysis}
     disabled={connectionStore.status !== "connected"}
     onclick={toggleAnalysis}
   >
     {t("game.analysis")}
-  </button>
+  </Button>
   <!-- Analysis 버튼과는 독립적으로 켜고 끌 수 있음 - 이 버튼이 켜지면 Analysis가
   꺼져 있어도 streamWanted가 켜져서 kata-analyze 스트림이 알아서 시작된다(위 $effect
   참고). 연결만 되어 있으면 되므로 disabled 조건은 Analysis 버튼과 동일. -->
-  <button
-    class="toggle"
-    class:active={analysisStore.showOwnership}
-    type="button"
+  <Button
+    active={analysisStore.showOwnership}
     title={t("game.ownership")}
     aria-pressed={analysisStore.showOwnership}
     disabled={connectionStore.status !== "connected"}
     onclick={toggleOwnership}
   >
     {t("game.ownership")}
-  </button>
+  </Button>
   <!-- 착수 없이 차례만 넘김. pendingMove 여부와 무관하게 항상 누를 수 있음(누르면
   진행 중이던 임시 선택은 알아서 비워짐 - gameTree.svelte.ts::passMove 참고). -->
-  <button type="button" onclick={() => gameTreeStore.passMove()}>
+  <Button onclick={() => gameTreeStore.passMove()}>
     {t("game.pass")}
-  </button>
+  </Button>
   <!-- 게임 트리에서 부모/자식 노드로 이동. 텍스트 대신 화살표로 표시해 키보드 없이도
   직관적으로 누를 수 있게 함 - 실제 동작(단축키 "["/"]" 포함)은 gameTreeStore.goBack()/
   goForward()와 동일. 자식 쪽은 여러 갈래가 있어도 가장 마지막으로 방문했던 자식으로
   이동함(game::GameTree::go_forward 참고). -->
-  <button
-    type="button"
+  <Button
     title={t("game.back")}
     aria-label={t("game.back")}
     disabled={!gameTreeStore.canGoBack}
     onclick={() => gameTreeStore.goBack()}
   >
     ←
-  </button>
-  <button
-    type="button"
+  </Button>
+  <Button
     title={t("game.goForward")}
     aria-label={t("game.goForward")}
     disabled={!gameTreeStore.canGoForward}
     onclick={() => gameTreeStore.goForward()}
   >
     →
-  </button>
+  </Button>
   <!-- 이미 돌이 있는 칸을 가리키고 있을 때도 버튼 자체는 항상 그대로 표시하되,
   confirmMove()가 그 경우 아무 동작도 하지 않으므로(임의의 돌 제거 기능 폐지) 눌러도
   아무 효과가 없음. 취소는 별도 버튼 없이 BoardCanvas에서 현재 임시 선택 지점을 다시
   누르면 됨(cancelPending 호출) - board/BoardCanvas.svelte 참고. -->
-  <button
-    class="primary"
-    type="button"
+  <Button
+    variant="primary"
     disabled={!pendingMoveStore.pendingMove}
     onclick={() => gameTreeStore.confirmMove()}
   >
     {t("game.confirmMove")}
-  </button>
-  <button
-    class="danger"
-    type="button"
+  </Button>
+  <Button
+    variant="danger"
     disabled={!gameTreeStore.canGoBack}
     onclick={() => gameTreeStore.removeLastMove()}
   >
     {t("game.removeLastMove")}
-  </button>
+  </Button>
 </div>
 
 <style>
@@ -214,56 +203,22 @@
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-4);
     width: 100%;
   }
 
-  button {
+  /* 버튼 자체의 색/테두리/비활성 스타일은 이제 ui/Button.svelte가 담당 - 여기서는
+     이 버튼 패널 특유의 배치(늘어나서 줄바꿈 + 최소 너비)만 지정. 원형 아이콘
+     버튼(color-toggle)은 Button.svelte의 shape="circle"이 이미 늘어나지 않게
+     처리하므로 여기서 제외. */
+  .game-controls :global(.ui-button:not(.circle)) {
     flex: 1 1 auto;
     min-width: 96px;
-    padding: 10px 12px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
+    padding: var(--space-5) var(--space-6);
   }
 
-  button.primary {
-    border-color: #2e8b57;
-    background: #2e8b57;
-    color: #fff;
-  }
-
-  button.danger {
-    border-color: #a33;
-    color: #d66;
-  }
-
-  /* 엔진 자동 착수(흑/백)/Analysis가 켜져 있을 때 눈에 띄게 표시 */
-  button.toggle.active {
-    border-color: #3a7bd5;
-    color: #3a7bd5;
-  }
-
-  button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  /* 다음 착수 색 전환 버튼: 텍스트 버튼과 달리 늘어나지 않는 정사각형 아이콘 버튼 */
-  button.color-toggle {
-    flex: 0 0 auto;
-    min-width: 0;
-    width: 44px;
-    height: 44px;
-    padding: 4px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  button.color-toggle img {
+  /* 다음 착수 색 전환 버튼 안의 돌 이미지 */
+  .game-controls :global(.color-toggle) img {
     width: 100%;
     height: 100%;
     object-fit: contain;

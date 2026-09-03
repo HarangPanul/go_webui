@@ -4,6 +4,10 @@
   import { appErrorMessage } from "../../appError";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import SshKeyInput from "./SshKeyInput.svelte";
+  import FormField from "../ui/FormField.svelte";
+  import TextInput from "../ui/TextInput.svelte";
+  import NumberInput from "../ui/NumberInput.svelte";
+  import Button from "../ui/Button.svelte";
 
   // onDone: 저장 성공 또는 취소로 폼이 "끝났을 때" 호출 - SettingsScreen이 이 폼을
   // "엔진 추가" 버튼 뒤로 숨길 때 사용(폼 자체는 계속 열어둘지 닫을지 모르므로 부모가
@@ -79,45 +83,39 @@
 </script>
 
 <form class="server-profile-form" onsubmit={handleSubmit}>
-  <label>
-    {t("settings.profileName")}
-    <input type="text" bind:value={name} required />
-  </label>
-  <label>
-    {t("settings.host")}
-    <input type="text" bind:value={host} required />
-  </label>
-  <label>
-    {t("settings.port")}
-    <input type="number" min="1" max="65535" bind:value={port} required />
-  </label>
-  <label>
-    {t("settings.username")}
-    <input type="text" bind:value={username} required />
-  </label>
-  <label>
-    {t("settings.engineCommand")}
-    <input type="text" bind:value={engineCommand} />
-  </label>
-  <label>
-    {t("settings.sshKey")}
+  <FormField label={t("settings.profileName")}>
+    <TextInput bind:value={name} required />
+  </FormField>
+  <FormField label={t("settings.host")}>
+    <TextInput bind:value={host} required />
+  </FormField>
+  <FormField label={t("settings.port")}>
+    <NumberInput min={1} max={65535} bind:value={port} required />
+  </FormField>
+  <FormField label={t("settings.username")}>
+    <TextInput bind:value={username} required />
+  </FormField>
+  <FormField label={t("settings.engineCommand")}>
+    <TextInput bind:value={engineCommand} />
+  </FormField>
+  <FormField
+    label={t("settings.sshKey")}
+    hint={editingId ? t("settings.sshKeyEditHint") : undefined}
+  >
     <SshKeyInput bind:value={privateKey} />
-    {#if editingId}
-      <span class="hint">{t("settings.sshKeyEditHint")}</span>
-    {/if}
-  </label>
+  </FormField>
 
   {#if error}
     <p class="error">{error}</p>
   {/if}
 
   <div class="form-actions">
-    <button type="submit" class="primary" disabled={saving}>
+    <Button type="submit" variant="primary" disabled={saving}>
       {editingId ? t("settings.saveChanges") : t("settings.saveProfile")}
-    </button>
-    <button type="button" onclick={handleCancel} disabled={saving}>
+    </Button>
+    <Button type="button" onclick={handleCancel} disabled={saving}>
       {t("settings.cancelEdit")}
-    </button>
+    </Button>
   </div>
 </form>
 
@@ -125,56 +123,17 @@
   .server-profile-form {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-  }
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 0.85rem;
-  }
-
-  input {
-    padding: 6px 8px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
+    gap: var(--space-5);
   }
 
   .form-actions {
     display: flex;
-    gap: 8px;
-  }
-
-  .form-actions button {
-    padding: 8px 16px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-  }
-
-  button.primary {
-    align-self: flex-start;
-    border: 1px solid #2e8b57;
-    background: #2e8b57;
-    color: #fff;
-  }
-
-  button.primary:disabled {
-    opacity: 0.5;
-  }
-
-  .hint {
-    font-size: 0.75rem;
-    opacity: 0.7;
+    gap: var(--space-4);
   }
 
   .error {
     margin: 0;
-    color: #c0392b;
+    color: var(--color-danger);
     font-size: 0.85rem;
   }
 </style>

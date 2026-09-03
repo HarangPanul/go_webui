@@ -1,0 +1,27 @@
+/* 디자인 토큰: 지금까지 ~10개 컴포넌트에 흩어져 복사-붙여넣기되어 있던 색상/간격/
+   둥근 모서리 리터럴을 한 곳에 모은 것. 값 자체는 기존 화면과 최대한 동일하게
+   맞췄고, 딱 하나만 실제로 통일했다: danger 색이 두 갈래(#a33/#d66 vs #c0392b)로
+   갈라져 있던 걸 --color-danger 하나로 합침. 반지름은 입력(4px)과 버튼/패널(6px)이
+   원래도 실제로 다른 값이었으므로 억지로 하나로 합치지 않고 두 토큰으로 유지. */
+
+:root {
+  --color-border: #444;
+  --color-primary: #2e8b57;
+  --color-danger: #c0392b;
+  --color-warning: #d9a441;
+  --color-accent: #3a7bd5;
+  --color-stone-black: #111111;
+  --color-stone-white: #f2f2f2;
+
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 16px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-full: 50%;
+}

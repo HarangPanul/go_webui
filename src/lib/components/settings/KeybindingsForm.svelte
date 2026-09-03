@@ -7,6 +7,7 @@
   // 문제는 없음 - keybindings.svelte.ts 참고).
   import { t } from "../../i18n";
   import { keybindingsStore, type KeyAction } from "../../stores/keybindings.svelte";
+  import Button from "../ui/Button.svelte";
 
   const ACTIONS: { action: KeyAction; labelKey: Parameters<typeof t>[0] }[] = [
     { action: "confirmMove", labelKey: "game.confirmMove" },
@@ -66,25 +67,23 @@
   {#each ACTIONS as { action, labelKey } (action)}
     <div class="row">
       <span class="label">{t(labelKey)}</span>
-      <button
-        type="button"
+      <Button
         class="key"
-        class:listening={listeningFor === action}
+        active={listeningFor === action}
         onclick={() => startListening(action)}
       >
         {listeningFor === action
           ? t("settings.keybindings.pressKey")
           : displayKey(keybindingsStore.keyFor(action))}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         class="reset"
         title={t("settings.keybindings.reset")}
         aria-label={t("settings.keybindings.reset")}
         onclick={() => keybindingsStore.resetToDefault(action)}
       >
         ↺
-      </button>
+      </Button>
     </div>
   {/each}
 </div>
@@ -93,39 +92,27 @@
   .keybindings-form {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-4);
     width: 100%;
   }
 
   .row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-4);
   }
 
   .label {
     flex: 1 1 auto;
   }
 
-  button.key {
+  /* 색/테두리는 ui/Button.svelte가 담당 - 여기서는 이 폼 특유의 너비만 지정 */
+  .row :global(.key) {
     min-width: 96px;
-    padding: 6px 10px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
+    padding: var(--space-3) var(--space-5);
   }
 
-  button.key.listening {
-    border-color: #2e8b57;
-    color: #2e8b57;
-  }
-
-  button.reset {
-    padding: 4px 8px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
+  .row :global(.reset) {
+    padding: var(--space-2) var(--space-4);
   }
 </style>

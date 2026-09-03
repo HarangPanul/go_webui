@@ -8,6 +8,9 @@
   import { t } from "../../i18n";
   import { connectionStore } from "../../stores/connection.svelte";
   import { gtpStore } from "../../stores/gtp.svelte";
+  import Panel from "../ui/Panel.svelte";
+  import TextInput from "../ui/TextInput.svelte";
+  import Button from "../ui/Button.svelte";
 
   let command = $state("");
   let sending = $state(false);
@@ -35,22 +38,21 @@
 </script>
 
 <div class="gtp-console">
-  <div class="log">
+  <Panel class="log">
     {#each gtpStore.log as entry, i (i)}
       <p class="log-entry {entry.kind}">{entry.text}</p>
     {/each}
-  </div>
+  </Panel>
   <div class="input-row">
-    <input
-      type="text"
+    <TextInput
       bind:value={command}
       onkeydown={handleKeydown}
       disabled={disabled}
       placeholder="name"
     />
-    <button type="button" onclick={send} disabled={disabled || !command.trim()}>
+    <Button onclick={send} disabled={disabled || !command.trim()}>
       {t("settings.send")}
-    </button>
+    </Button>
   </div>
 </div>
 
@@ -58,20 +60,19 @@
   .gtp-console {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-3);
   }
 
-  .log {
+  /* 테두리/둥근 모서리/패딩은 ui/Panel.svelte가 담당 - 여기서는 로그 특유의
+     스크롤/모노스페이스만 지정 */
+  :global(.log) {
     max-height: 200px;
     overflow-y: auto;
-    border: 1px solid #444;
-    border-radius: 4px;
-    padding: 6px 8px;
     font-family: monospace;
     font-size: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-1);
   }
 
   .log-entry {
@@ -89,33 +90,20 @@
   }
 
   .log-entry.analysis {
-    color: #2e8b57;
+    color: var(--color-primary);
   }
 
   .log-entry.error {
-    color: #c0392b;
+    color: var(--color-danger);
   }
 
   .input-row {
     display: flex;
-    gap: 6px;
+    gap: var(--space-3);
   }
 
-  .input-row input {
+  .input-row :global(.ui-input) {
     flex: 1;
-    padding: 6px 8px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
     font-family: monospace;
-  }
-
-  .input-row button {
-    padding: 6px 12px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
   }
 </style>

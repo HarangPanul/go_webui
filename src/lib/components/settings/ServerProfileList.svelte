@@ -3,6 +3,8 @@
   import { t } from "../../i18n";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
+  import Button from "../ui/Button.svelte";
+  import Panel from "../ui/Panel.svelte";
 
   serverProfilesStore.refresh();
 
@@ -35,38 +37,35 @@
 
 <ul class="server-profile-list">
   {#each serverProfilesStore.profiles as profile (profile.id)}
-    <li class="profile-item">
-      <div class="profile-info">
-        <span class="profile-name">{profile.name || profile.host}</span>
-        <span class="profile-detail"
-          >{profile.username}@{profile.host}:{profile.port}</span
-        >
-        {#if profile.hasPassphrase}
-          <span class="passphrase-warning">{t("settings.passphraseWarning")}</span>
-        {/if}
-      </div>
-      <div class="profile-actions">
-        <button
-          type="button"
-          onclick={() => handleConnect(profile.id)}
-          disabled={profile.hasPassphrase || connectingId === profile.id}
-        >
-          {serverProfilesStore.activeProfileId === profile.id &&
-          connectionStore.status === "connected"
-            ? t("settings.connected")
-            : t("settings.connect")}
-        </button>
-        <button type="button" onclick={() => serverProfilesStore.startEdit(profile)}>
-          {t("settings.edit")}
-        </button>
-        <button
-          type="button"
-          class="danger"
-          onclick={() => serverProfilesStore.remove(profile.id)}
-        >
-          {t("settings.delete")}
-        </button>
-      </div>
+    <li>
+      <Panel class="profile-item">
+        <div class="profile-info">
+          <span class="profile-name">{profile.name || profile.host}</span>
+          <span class="profile-detail"
+            >{profile.username}@{profile.host}:{profile.port}</span
+          >
+          {#if profile.hasPassphrase}
+            <span class="passphrase-warning">{t("settings.passphraseWarning")}</span>
+          {/if}
+        </div>
+        <div class="profile-actions">
+          <Button
+            onclick={() => handleConnect(profile.id)}
+            disabled={profile.hasPassphrase || connectingId === profile.id}
+          >
+            {serverProfilesStore.activeProfileId === profile.id &&
+            connectionStore.status === "connected"
+              ? t("settings.connected")
+              : t("settings.connect")}
+          </Button>
+          <Button onclick={() => serverProfilesStore.startEdit(profile)}>
+            {t("settings.edit")}
+          </Button>
+          <Button variant="danger" onclick={() => serverProfilesStore.remove(profile.id)}>
+            {t("settings.delete")}
+          </Button>
+        </div>
+      </Panel>
     </li>
   {:else}
     <li class="empty">{t("settings.noProfiles")}</li>
@@ -74,12 +73,12 @@
 </ul>
 
 {#if connectionStore.status !== "disconnected"}
-  <div class="connection-status status-{connectionStore.status}">
+  <Panel class="connection-status status-{connectionStore.status}">
     <span>{t(statusKey[connectionStore.status])}</span>
-    <button type="button" onclick={handleDisconnect}>
+    <Button onclick={handleDisconnect}>
       {t("settings.disconnect")}
-    </button>
-  </div>
+    </Button>
+  </Panel>
   {#if connectionStore.lastError}
     <p class="error">{connectionStore.lastError}</p>
   {/if}
@@ -92,23 +91,22 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-4);
   }
 
-  .profile-item {
+  /* 테두리/둥근 모서리/패딩은 ui/Panel.svelte가 담당 - 여기서는 이 목록 항목
+     특유의 가로 배치만 지정 */
+  :global(.profile-item) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 8px;
-    border: 1px solid #444;
-    border-radius: 6px;
+    gap: var(--space-4);
   }
 
   .profile-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-1);
     min-width: 0;
   }
 
@@ -123,27 +121,19 @@
 
   .passphrase-warning {
     font-size: 0.75rem;
-    color: #d9a441;
+    color: var(--color-warning);
   }
 
   .profile-actions {
     display: flex;
-    gap: 6px;
+    gap: var(--space-3);
     flex-shrink: 0;
   }
 
-  .profile-actions button {
-    padding: 6px 10px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
+  /* 목록 안 버튼은 본문보다 작게(원래도 기본 버튼보다 좁은 패딩/글자 크기였음) */
+  .profile-actions :global(.ui-button) {
+    padding: var(--space-3) var(--space-5);
     font-size: 0.8rem;
-  }
-
-  .profile-actions button.danger {
-    border-color: #a33;
-    color: #d66;
   }
 
   .empty {
@@ -151,20 +141,17 @@
     font-size: 0.85rem;
   }
 
-  .connection-status {
-    margin-top: 8px;
+  :global(.connection-status) {
+    margin-top: var(--space-4);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid #444;
+    gap: var(--space-4);
   }
 
   .error {
-    margin: 4px 0 0;
-    color: #c0392b;
+    margin: var(--space-2) 0 0;
+    color: var(--color-danger);
     font-size: 0.85rem;
   }
 </style>

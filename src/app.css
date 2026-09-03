@@ -1,5 +1,7 @@
 /* 전역 스타일 진입점. Tailwind 도입 시 이 파일에서 @tailwind 지시어 추가 */
 
+@import "./lib/styles/tokens.css";
+
 :root {
   color-scheme: dark light;
 }

@@ -12,6 +12,8 @@
   import { t } from "../../i18n";
   import { appErrorMessage } from "../../appError";
   import { sshKeysStore } from "../../stores/sshKeys.svelte";
+  import Select from "../ui/Select.svelte";
+  import TextArea from "../ui/TextArea.svelte";
 
   let { value = $bindable("") }: { value?: string } = $props();
 
@@ -37,25 +39,25 @@
   {#if sshKeysStore.keys.length > 0}
     <label class="detect-row">
       {t("settings.sshKeyDetected")}
-      <select value={selectedPath} onchange={handleSelect}>
+      <Select value={selectedPath} onchange={handleSelect}>
         <option value="">{t("settings.sshKeyDetectPlaceholder")}</option>
         {#each sshKeysStore.keys as key (key.path)}
           <option value={key.path} disabled={key.hasPassphrase}>
             {key.name}{key.hasPassphrase ? ` (${t("settings.passphraseWarning")})` : ""}
           </option>
         {/each}
-      </select>
+      </Select>
     </label>
   {/if}
   {#if loadError}
     <p class="error">{loadError}</p>
   {/if}
-  <textarea
+  <TextArea
     bind:value
-    rows="6"
+    rows={6}
     placeholder="-----BEGIN PRIVATE KEY-----"
     spellcheck="false"
-  ></textarea>
+  />
   {#if looksEncrypted}
     <p class="warning">{t("settings.passphraseWarning")}</p>
   {/if}
@@ -65,45 +67,25 @@
   .ssh-key-input {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-2);
   }
 
   .detect-row {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-1);
     font-size: 0.8rem;
-  }
-
-  select {
-    padding: 6px 8px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-  }
-
-  textarea {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    font-family: monospace;
-    font-size: 0.75rem;
-    resize: vertical;
   }
 
   .warning {
     margin: 0;
-    color: #d9a441;
+    color: var(--color-warning);
     font-size: 0.8rem;
   }
 
   .error {
     margin: 0;
-    color: #c0392b;
+    color: var(--color-danger);
     font-size: 0.8rem;
   }
 </style>

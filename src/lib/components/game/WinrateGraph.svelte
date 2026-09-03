@@ -98,8 +98,8 @@
   .winrate-bar {
     display: flex;
     overflow: hidden;
-    border: 1px solid #444;
-    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
   }
 
   .segment {
@@ -110,11 +110,11 @@
   }
 
   .segment.white {
-    background: #f2f2f2;
+    background: var(--color-stone-white);
   }
 
   .segment.black {
-    background: #111111;
+    background: var(--color-stone-black);
   }
 
   /* 세로 모드: 바둑판 바로 아래 가로 막대. DOM 순서(흰 -> 검)대로면 왼쪽이 흰색,

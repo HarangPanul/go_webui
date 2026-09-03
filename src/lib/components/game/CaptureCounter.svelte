@@ -35,8 +35,8 @@
     bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     z-index: 20;
     display: flex;
-    gap: 12px;
-    padding: 6px 12px;
+    gap: var(--space-6);
+    padding: var(--space-3) var(--space-6);
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.6);
     color: #fff;

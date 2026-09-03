@@ -6,6 +6,8 @@
   // 매번 백엔드에 보내지 않는다.
   import { t } from "../../i18n";
   import { komiStore } from "../../stores/komi.svelte";
+  import FormField from "../ui/FormField.svelte";
+  import NumberInput from "../ui/NumberInput.svelte";
 
   // 입력 중인 값은 별도 로컬 상태로 두고, komiStore.value가 바뀔 때(예: 앱 시작
   // 시 백엔드에서 값을 가져온 직후) 그 값으로 다시 채워 넣는다.
@@ -26,28 +28,6 @@
   }
 </script>
 
-<div class="komi-form">
-  <label for="komi-input">{t("settings.komi")}</label>
-  <input id="komi-input" type="number" step="0.5" bind:value={draft} onchange={commit} />
-</div>
-
-<style>
-  .komi-form {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  label {
-    flex: 1 1 auto;
-  }
-
-  input {
-    width: 96px;
-    padding: 6px 10px;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-  }
-</style>
+<FormField label={t("settings.komi")} layout="row">
+  <NumberInput step={0.5} bind:value={draft} onchange={commit} style="width: 96px" />
+</FormField>
