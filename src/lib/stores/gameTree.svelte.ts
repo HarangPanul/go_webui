@@ -1,19 +1,20 @@
-// 바둑판 상태 store: 착수/따내기/게임 트리 판정은 전부 Rust(src-tauri/src/game)에서
-// 처리하고, 여기서는 그 결과 스냅샷을 담아 두는 것과 임시 선택(pendingMove, 아직
-// 서버에 확정 요청을 보내지 않은 UI 상태) 관리만 담당하는 얇은 클라이언트.
-
+// 게임 트리 상태 store: 착수/따내기/게임 트리 판정은 전부 Rust(src-tauri/src/game)에서
+// 처리하고, 여기서는 그 결과 스냅샷을 담아두는 것만 담당하는 얇은 클라이언트 -
+// board.svelte.ts("god store")에서 pendingMove(임시 선택 UI 상태)/engineColors(엔진
+// 자동 착수 설정)를 분리해낸 것. 이 파일은 스냅샷 자체와 그걸 바꾸는 6개 커맨드
+// 래퍼(confirmMove/passMove/goBack/goForward/removeLastMove/toggleTurn)만 담당한다.
+//
+// confirmMove/passMove/goBack/goForward/removeLastMove는 pendingMove(다른
+// store - pendingMove.svelte.ts)를 읽고 끝나면 비워야 해서 그쪽을 import한다 -
+// pendingMove.svelte.ts도 pendingOnStone 계산에 이 store의 stones/isEmpty를
+// 읽으려고 반대 방향으로 이 파일을 import하는데, 두 store 모두 최상위에서
+// 서로를 즉시 호출하지 않고(각자 $state 초기화만 하고 실제 참조는 나중에 호출되는
+// 함수/getter 안에서만 일어남) 순환 import 자체는 안전하다.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { pendingMoveStore } from "./pendingMove.svelte";
 
 export type Stone = "black" | "white" | null;
-
-// 엔진이 흑/백을 각각 자동으로 둘지 여부(색상별 독립 on/off). 둘 다 켜져 있으면
-// 엔진이 자기 자신과 대국하듯 양쪽을 계속 두고, 둘 다 꺼져 있으면 자동 착수 없이
-// 사람이 양쪽을 다 둠 - Rust state::EngineColors와 필드 대응(serde camelCase).
-export interface EngineColors {
-  black: boolean;
-  white: boolean;
-}
 
 interface MoveInfo {
   x: number;
@@ -60,14 +61,11 @@ function emptySnapshot(): BoardSnapshot {
   };
 }
 
-function createBoardStore() {
+function createGameTreeStore() {
   let snapshot = $state<BoardSnapshot>(emptySnapshot());
-  let pendingMove = $state<{ x: number; y: number } | null>(null);
-  let engineColors = $state<EngineColors>({ black: false, white: false });
 
-  // 앱 시작 시 Rust 쪽 게임 트리 / 엔진 색 설정의 현재 상태를 한 번 가져와 동기화
+  // 앱 시작 시 Rust 쪽 게임 트리의 현재 상태를 한 번 가져와 동기화
   invoke<BoardSnapshot>("get_board_state").then((s) => (snapshot = s));
-  invoke<EngineColors>("get_engine_colors").then((c) => (engineColors = c));
 
   // 흑/백이 둘 다 켜져 있으면 백엔드가 사람 턴이 될 때까지(또는 pass/resign) 여러 수를
   // 연달아 자동으로 두므로, confirmMove() 호출 하나의 반환값만 기다리면 그 사이 수들이
@@ -83,9 +81,6 @@ function createBoardStore() {
     },
     get stones() {
       return snapshot.stones;
-    },
-    get pendingMove() {
-      return pendingMove;
     },
     get currentTurn() {
       return snapshot.currentTurn;
@@ -126,30 +121,8 @@ function createBoardStore() {
     get captures() {
       return snapshot.captures;
     },
-    // 엔진이 흑/백을 각각 자동으로 둘지 여부 - confirmMove() 후 백엔드가 이 값을
-    // 보고 필요하면 자동으로 genmove까지 반영해 돌려주므로, 프론트는 이 값을 버튼
-    // on/off 표시에만 사용하면 됨.
-    get engineColors() {
-      return engineColors;
-    },
-    async setEngineColor(color: "black" | "white", enabled: boolean) {
-      engineColors = { ...engineColors, [color]: enabled };
-      await invoke("set_engine_color", { color, enabled });
-    },
-    // pendingMove가 이미 돌이 놓인 칸을 가리키는지 여부. 그 칸에는 착수할 수 없으므로
-    // UI에서 확정 버튼을 비활성화하는 데 사용.
-    get pendingOnStone() {
-      if (!pendingMove) return false;
-      return snapshot.stones[pendingMove.y][pendingMove.x] !== null;
-    },
     isEmpty(x: number, y: number) {
       return snapshot.stones[y]?.[x] === null;
-    },
-    selectPending(x: number, y: number) {
-      pendingMove = { x, y };
-    },
-    cancelPending() {
-      pendingMove = null;
     },
     // 돌을 실제로 두지 않고도 다음에 둘 색을 수동으로 바꿈 (예: 상대 대신 두는 경우 등)
     async toggleTurn() {
@@ -158,35 +131,35 @@ function createBoardStore() {
     // 빈 칸을 확정하면 착수. 실제 따내기/게임 트리 갱신은 Rust에서 판정하고, 여기서는
     // 그 결과 스냅샷을 반영하기만 함.
     async confirmMove() {
-      if (!pendingMove) return;
-      const { x, y } = pendingMove;
-      snapshot = await invoke<BoardSnapshot>("confirm_move", { x, y });
-      pendingMove = null;
+      const pending = pendingMoveStore.pendingMove;
+      if (!pending) return;
+      snapshot = await invoke<BoardSnapshot>("confirm_move", pending);
+      pendingMoveStore.cancelPending();
     },
     // 착수 없이 차례만 넘김. confirmMove와 마찬가지로 진행 중이던 임시 선택은 비움
     // (pass 버튼을 누르는 시점엔 어차피 확정하려던 게 아니므로).
     async passMove() {
       snapshot = await invoke<BoardSnapshot>("pass_move");
-      pendingMove = null;
+      pendingMoveStore.cancelPending();
     },
     // 게임 트리에서 부모 노드로 이동(뒤로 가기)
     async goBack() {
       snapshot = await invoke<BoardSnapshot>("go_back");
-      pendingMove = null;
+      pendingMoveStore.cancelPending();
     },
     // 게임 트리에서 자식 노드로 이동(앞으로 가기). 여러 갈래가 있으면 가장 마지막으로
     // 방문했던 자식으로(한 번도 안 가봤으면 가장 최근에 만들어진 자식으로) 이동함 -
     // 실제 판단은 백엔드(game::GameTree::go_forward)가 함.
     async goForward() {
       snapshot = await invoke<BoardSnapshot>("go_forward");
-      pendingMove = null;
+      pendingMoveStore.cancelPending();
     },
     // 현재 노드(=가장 마지막으로 둔 수)를 게임 트리에서 통째로 삭제하고 그 부모로 이동
     async removeLastMove() {
       snapshot = await invoke<BoardSnapshot>("remove_last_move");
-      pendingMove = null;
+      pendingMoveStore.cancelPending();
     },
   };
 }
 
-export const boardStore = createBoardStore();
+export const gameTreeStore = createGameTreeStore();

@@ -1,9 +1,11 @@
 <script lang="ts">
   // 버튼 패널: [착수 확정]/[취소] 전환, 다음 착수 색 전환, 대국 모드 전환 등 (설정 진입은 TopBar로 이동)
   // portrait에서는 하단 가로 바, landscape/desktop에서는 우측 세로 컬럼(GameScreen 레이아웃이 방향 전환)
-  import { invoke } from "@tauri-apps/api/core";
   import { t } from "../../i18n";
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
+  import { pendingMoveStore } from "../../stores/pendingMove.svelte";
+  import { engineColorsStore } from "../../stores/engineColors.svelte";
+  import { gtpStore } from "../../stores/gtp.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
   import stoneBlackUrl from "../../../assets/stone-black.png";
@@ -16,7 +18,7 @@
   // 실제 자동 착수(genmove) 로직은 confirmMove() 이후 백엔드
   // (commands::game::confirm_move)가 처리하고, 여기서는 그 설정값만 토글/전송한다.
   function toggleEngineColor(color: "black" | "white") {
-    boardStore.setEngineColor(color, !boardStore.engineColors[color]);
+    engineColorsStore.setEngineColor(color, !engineColorsStore.engineColors[color]);
   }
 
   // Analysis(엔진 분석 미리 받아오기) 버튼: 켜지면 "start_kata_analyze" 전용 커맨드로
@@ -41,9 +43,7 @@
   const ANALYSIS_INTERVAL_CENTISECONDS = 50; // 0.5초 간격으로 info 업데이트
 
   function startAnalysis() {
-    invoke("start_kata_analyze", {
-      intervalCentiseconds: ANALYSIS_INTERVAL_CENTISECONDS,
-    }).catch(() => {
+    gtpStore.startKataAnalyze(ANALYSIS_INTERVAL_CENTISECONDS).catch(() => {
       if (analysisStore.showAnalysis) analysisStore.toggleAnalysis();
     });
   }
@@ -77,7 +77,7 @@
   // 원하지 않는 평상시 대국) 매 수마다 쓸데없이 인터럽트 명령을 보내지 않기 위함.
   let wasStreaming = false;
   $effect(() => {
-    boardStore.lastMove;
+    gameTreeStore.lastMove;
     if (streamWanted) {
       wasStreaming = true;
       startAnalysis();
@@ -90,7 +90,7 @@
       // 참고), 여기서 reset()을 부르면 WinrateGraph가 그 즉시 5:5로 되돌아가버린다.
       // "분석을 멈춤"은 "지금까지 알아낸 결과를 지움"이 아니라 "더 이상 새로 갱신하지
       // 않음"이어야 하므로 캐시는 그대로 두고 갱신만 멈춘다.
-      invoke("send_gtp_command", { command: "name" }).catch(() => {});
+      gtpStore.sendSilent("name").catch(() => {});
     }
   });
 
@@ -111,26 +111,26 @@
     type="button"
     title={t("game.switchColor")}
     aria-label={t("game.switchColor")}
-    onclick={() => boardStore.toggleTurn()}
+    onclick={() => gameTreeStore.toggleTurn()}
   >
-    <img src={stoneImages[boardStore.currentTurn]} alt={boardStore.currentTurn} />
+    <img src={stoneImages[gameTreeStore.currentTurn]} alt={gameTreeStore.currentTurn} />
   </button>
   <button
     class="toggle"
-    class:active={boardStore.engineColors.black}
+    class:active={engineColorsStore.engineColors.black}
     type="button"
     title={t("game.engineColor.black")}
-    aria-pressed={boardStore.engineColors.black}
+    aria-pressed={engineColorsStore.engineColors.black}
     onclick={() => toggleEngineColor("black")}
   >
     {t("game.engineColor.black")}
   </button>
   <button
     class="toggle"
-    class:active={boardStore.engineColors.white}
+    class:active={engineColorsStore.engineColors.white}
     type="button"
     title={t("game.engineColor.white")}
-    aria-pressed={boardStore.engineColors.white}
+    aria-pressed={engineColorsStore.engineColors.white}
     onclick={() => toggleEngineColor("white")}
   >
     {t("game.engineColor.white")}
@@ -161,20 +161,20 @@
     {t("game.ownership")}
   </button>
   <!-- 착수 없이 차례만 넘김. pendingMove 여부와 무관하게 항상 누를 수 있음(누르면
-  진행 중이던 임시 선택은 알아서 비워짐 - board.svelte.ts::passMove 참고). -->
-  <button type="button" onclick={() => boardStore.passMove()}>
+  진행 중이던 임시 선택은 알아서 비워짐 - gameTree.svelte.ts::passMove 참고). -->
+  <button type="button" onclick={() => gameTreeStore.passMove()}>
     {t("game.pass")}
   </button>
   <!-- 게임 트리에서 부모/자식 노드로 이동. 텍스트 대신 화살표로 표시해 키보드 없이도
-  직관적으로 누를 수 있게 함 - 실제 동작(단축키 "["/"]" 포함)은 boardStore.goBack()/
+  직관적으로 누를 수 있게 함 - 실제 동작(단축키 "["/"]" 포함)은 gameTreeStore.goBack()/
   goForward()와 동일. 자식 쪽은 여러 갈래가 있어도 가장 마지막으로 방문했던 자식으로
   이동함(game::GameTree::go_forward 참고). -->
   <button
     type="button"
     title={t("game.back")}
     aria-label={t("game.back")}
-    disabled={!boardStore.canGoBack}
-    onclick={() => boardStore.goBack()}
+    disabled={!gameTreeStore.canGoBack}
+    onclick={() => gameTreeStore.goBack()}
   >
     ←
   </button>
@@ -182,8 +182,8 @@
     type="button"
     title={t("game.goForward")}
     aria-label={t("game.goForward")}
-    disabled={!boardStore.canGoForward}
-    onclick={() => boardStore.goForward()}
+    disabled={!gameTreeStore.canGoForward}
+    onclick={() => gameTreeStore.goForward()}
   >
     →
   </button>
@@ -194,16 +194,16 @@
   <button
     class="primary"
     type="button"
-    disabled={!boardStore.pendingMove}
-    onclick={() => boardStore.confirmMove()}
+    disabled={!pendingMoveStore.pendingMove}
+    onclick={() => gameTreeStore.confirmMove()}
   >
     {t("game.confirmMove")}
   </button>
   <button
     class="danger"
     type="button"
-    disabled={!boardStore.canGoBack}
-    onclick={() => boardStore.removeLastMove()}
+    disabled={!gameTreeStore.canGoBack}
+    onclick={() => gameTreeStore.removeLastMove()}
   >
     {t("game.removeLastMove")}
   </button>

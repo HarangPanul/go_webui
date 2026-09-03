@@ -1,7 +1,10 @@
 <script lang="ts">
   // 배경/격자/실제 돌 렌더링 + 2단계 착수 인터랙션(임시 선택 -> 확정)
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
+  import { pendingMoveStore } from "../../stores/pendingMove.svelte";
   import { instantMoveStore } from "../../stores/instantMove.svelte";
+  import { cellCenter, gridMetrics, nearestCell } from "../../canvas/boardGrid";
+  import { canvasLayer } from "../../canvas/canvasLayer";
   // 바둑판 배경: 실제 나무 질감 이미지로 교체 가능하도록 파일에서 로드
   // (현재는 단순 갈색 placeholder, src-tauri/icons와 마찬가지로 추후 실제 에셋으로 교체 예정)
   import boardBackgroundUrl from "../../../assets/board-background.png";
@@ -39,13 +42,6 @@
   stoneImages.white.onload = () => {
     stoneReady.white = true;
   };
-
-  // 캔버스(backing store) 좌표 기준 격자 치수 계산
-  function metrics(canvasSize: number, boardSize: number) {
-    const margin = canvasSize / (boardSize + 1);
-    const step = (canvasSize - margin * 2) / (boardSize - 1);
-    return { margin, step };
-  }
 
   function drawStone(
     ctx: CanvasRenderingContext2D,
@@ -145,8 +141,9 @@
     if (!ctx) return;
 
     const size = canvasEl.width; // 캔버스는 항상 정사각형
-    const boardSize = boardStore.size;
-    const { margin, step } = metrics(size, boardSize);
+    const boardSize = gameTreeStore.size;
+    const metrics = gridMetrics(size, boardSize);
+    const { margin, step } = metrics;
     const stoneRadius = step * STONE_RADIUS_RATIO;
 
     ctx.clearRect(0, 0, size, size);
@@ -177,8 +174,7 @@
       const dotRadius = Math.max(2, size / 200);
       for (const row of STAR_POINTS_19) {
         for (const col of STAR_POINTS_19) {
-          const cx = margin + col * step;
-          const cy = margin + row * step;
+          const { cx, cy } = cellCenter(col, row, metrics);
           ctx.beginPath();
           ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
           ctx.fill();
@@ -187,32 +183,30 @@
     }
 
     // 실제 착수된 돌
-    const pending = boardStore.pendingMove;
-    const pendingOnStone = boardStore.pendingOnStone;
+    const pending = pendingMoveStore.pendingMove;
+    const pendingOnStone = pendingMoveStore.pendingOnStone;
     for (let y = 0; y < boardSize; y++) {
       for (let x = 0; x < boardSize; x++) {
-        const stone = boardStore.stones[y][x];
+        const stone = gameTreeStore.stones[y][x];
         if (!stone) continue;
-        const cx = margin + x * step;
-        const cy = margin + y * step;
+        const { cx, cy } = cellCenter(x, y, metrics);
         drawStone(ctx, cx, cy, stoneRadius, stone);
       }
     }
 
     // 가장 마지막으로 착수된 돌의 중앙에 반대 색 동그라미 표시
-    const lastMove = boardStore.lastMove;
+    const lastMove = gameTreeStore.lastMove;
     if (lastMove) {
-      const lastStone = boardStore.stones[lastMove.y][lastMove.x];
+      const lastStone = gameTreeStore.stones[lastMove.y][lastMove.x];
       if (lastStone) {
-        const cx = margin + lastMove.x * step;
-        const cy = margin + lastMove.y * step;
+        const { cx, cy } = cellCenter(lastMove.x, lastMove.y, metrics);
         drawLastMoveMarker(ctx, cx, cy, stoneRadius, lastStone);
       }
-    } else if (boardStore.lastMoveIsPass) {
+    } else if (gameTreeStore.lastMoveIsPass) {
       // 직전 차례가 pass였으면(좌표가 없어 동그라미로 표시할 자리가 없으므로) 보드
       // 위쪽 가운데에 텍스트로 안내 - 누가 pass했는지는 지금 차례(currentTurn)의
       // 반대쪽이므로 그걸로 색을 표기함.
-      const passedColor = boardStore.currentTurn === "black" ? "white" : "black";
+      const passedColor = gameTreeStore.currentTurn === "black" ? "white" : "black";
       ctx.save();
       ctx.font = `bold ${Math.round(step * 0.32)}px sans-serif`;
       ctx.textAlign = "center";
@@ -228,19 +222,17 @@
     }
 
     // 현재 노드에서 갈라지는 다음 수 후보(게임 트리 자식) 지점 표시
-    for (const child of boardStore.currentChildren) {
-      const cx = margin + child.x * step;
-      const cy = margin + child.y * step;
+    for (const child of gameTreeStore.currentChildren) {
+      const { cx, cy } = cellCenter(child.x, child.y, metrics);
       drawChildMarker(ctx, cx, cy, stoneRadius, child.color);
     }
 
     // 임시 선택(확정 전) 미리보기 + 십자선
     if (pending) {
-      const cx = margin + pending.x * step;
-      const cy = margin + pending.y * step;
+      const { cx, cy } = cellCenter(pending.x, pending.y, metrics);
       if (!pendingOnStone) {
         // 빈 칸을 선택한 경우: 착수될 돌을 반투명 미리보기로 표시
-        drawStone(ctx, cx, cy, stoneRadius, boardStore.currentTurn, 0.45);
+        drawStone(ctx, cx, cy, stoneRadius, gameTreeStore.currentTurn, 0.45);
       }
       drawCrosshair(ctx, cx, cy, margin, size, gridLineWidth);
     }
@@ -260,19 +252,8 @@
     const bx = (evt.clientX - rect.left) * scaleX;
     const by = (evt.clientY - rect.top) * scaleY;
 
-    const boardSize = boardStore.size;
-    const { margin, step } = metrics(canvasEl.width, boardSize);
-
-    const col = Math.min(
-      boardSize - 1,
-      Math.max(0, Math.round((bx - margin) / step)),
-    );
-    const row = Math.min(
-      boardSize - 1,
-      Math.max(0, Math.round((by - margin) / step)),
-    );
-
-    return { x: col, y: row };
+    const boardSize = gameTreeStore.size;
+    return nearestCell(bx, by, gridMetrics(canvasEl.width, boardSize), boardSize);
   }
 
   // 드래그 상태: 누르는 순간부터 손가락/마우스를 따라 미리보기(빈 칸 -> 반투명 돌,
@@ -290,22 +271,22 @@
 
     // 이미 임시 선택된 지점을 다시 누르면 그 선택을 취소함(별도 취소 버튼 없이도
     // 취소할 수 있도록).
-    const pending = boardStore.pendingMove;
+    const pending = pendingMoveStore.pendingMove;
     if (pending && pending.x === pos.x && pending.y === pos.y) {
-      boardStore.cancelPending();
+      pendingMoveStore.cancelPending();
       return;
     }
 
     if (instantMoveStore.enabled && evt.pointerType === "mouse") {
       // 마우스는 드래그 미리보기 없이 누르는 순간 바로 확정
-      boardStore.selectPending(pos.x, pos.y);
-      boardStore.confirmMove();
+      pendingMoveStore.selectPending(pos.x, pos.y);
+      gameTreeStore.confirmMove();
       return;
     }
 
     canvasEl?.setPointerCapture(evt.pointerId);
     dragging = true;
-    boardStore.selectPending(pos.x, pos.y);
+    pendingMoveStore.selectPending(pos.x, pos.y);
   }
 
   function handlePointerMove(evt: PointerEvent) {
@@ -313,13 +294,13 @@
     const pos = nearestIntersection(evt);
     if (!pos) return;
 
-    boardStore.selectPending(pos.x, pos.y);
+    pendingMoveStore.selectPending(pos.x, pos.y);
   }
 
   function handlePointerUp(evt: PointerEvent) {
     // 터치스크린(펜 포함)에서 "확인 없이 바로 착수"가 켜져 있으면 손을 떼는 순간 확정
     if (dragging && instantMoveStore.enabled && evt.pointerType !== "mouse") {
-      boardStore.confirmMove();
+      gameTreeStore.confirmMove();
     }
     dragging = false;
   }
@@ -335,15 +316,15 @@
   // 위치시킴. 확정은 마우스/터치와 마찬가지로 여기서 하지 않고 GameControls의 Confirm
   // Move 버튼 또는 (KeyboardShortcuts.svelte가 처리하는) Space 키로만 이뤄짐.
   function movePendingBy(dx: number, dy: number) {
-    if (!boardStore.pendingMove && !boardStore.lastMove) {
-      boardStore.selectPending(0, 0);
+    if (!pendingMoveStore.pendingMove && !gameTreeStore.lastMove) {
+      pendingMoveStore.selectPending(0, 0);
       return;
     }
-    const boardSize = boardStore.size;
-    const start = boardStore.pendingMove ?? boardStore.lastMove!;
+    const boardSize = gameTreeStore.size;
+    const start = pendingMoveStore.pendingMove ?? gameTreeStore.lastMove!;
     const x = Math.min(boardSize - 1, Math.max(0, start.x + dx));
     const y = Math.min(boardSize - 1, Math.max(0, start.y + dy));
-    boardStore.selectPending(x, y);
+    pendingMoveStore.selectPending(x, y);
   }
 
   // 방향키(임시 선택 이동)만 처리 - confirmMove/back/removeLastMove/changeColor 등
@@ -381,35 +362,14 @@
   });
 
   $effect(() => {
-    if (!canvasEl) return;
-    const parent = canvasEl.parentElement;
-    if (!parent) return;
-
-    const resize = () => {
-      if (!canvasEl) return;
-      const dpr = window.devicePixelRatio || 1;
-      const cssSize = parent.clientWidth;
-      canvasEl.width = Math.round(cssSize * dpr);
-      canvasEl.height = Math.round(cssSize * dpr);
-      draw();
-    };
-
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(parent);
-
-    return () => observer.disconnect();
-  });
-
-  $effect(() => {
     // 보드 크기, 돌 배치, 임시 선택, 배경 이미지 로드 상태 변경 시 다시 그림
-    boardStore.size;
-    boardStore.stones;
-    boardStore.pendingMove;
-    boardStore.currentTurn;
-    boardStore.lastMove;
-    boardStore.lastMoveIsPass;
-    boardStore.currentChildren;
+    gameTreeStore.size;
+    gameTreeStore.stones;
+    pendingMoveStore.pendingMove;
+    gameTreeStore.currentTurn;
+    gameTreeStore.lastMove;
+    gameTreeStore.lastMoveIsPass;
+    gameTreeStore.currentChildren;
     backgroundReady;
     stoneReady.black;
     stoneReady.white;
@@ -420,6 +380,7 @@
 <canvas
   bind:this={canvasEl}
   class="board-layer"
+  use:canvasLayer={draw}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}

@@ -19,12 +19,3 @@ export interface NewServerProfile {
   privateKey: string;
   engineCommand: string;
 }
-
-// 데스크탑에서 ~/.ssh를 스캔해 감지한 key 요약 정보 (원문은 없음 - 선택 시
-// loadLocalSshKey로 따로 읽어옴). Android 등에서는 list_local_ssh_keys 자체가
-// 에러를 반환하므로 이 타입을 쓸 일이 없음.
-export interface LocalSshKeyInfo {
-  name: string;
-  path: string;
-  hasPassphrase: boolean;
-}

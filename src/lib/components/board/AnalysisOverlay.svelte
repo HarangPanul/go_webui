@@ -21,9 +21,12 @@
   // analysisStore.showAnalysis 토글이 켜져 있을 때만 그림 - kata-analyze 스트림
   // 자체는(Ownership만 켜져 있어도) 계속 돌면서 결과를 캐싱해두므로, 이 토글을
   // 나중에 켜는 순간 이미 받아둔 최신 결과를 바로 보여줄 수 있다.
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
+  import { pendingMoveStore } from "../../stores/pendingMove.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
   import { fromVertex } from "../../utils/coords";
+  import { cellCenter, gridMetrics } from "../../canvas/boardGrid";
+  import { canvasLayer } from "../../canvas/canvasLayer";
 
   // 방문수 상위 N개만 표시 - 다 그리면 좁은 칸에 텍스트가 겹쳐 오히려 안 보임
   const MAX_SPOTS = 16;
@@ -68,14 +71,6 @@
 
   let canvasEl: HTMLCanvasElement | undefined = $state();
 
-  // BoardCanvas.svelte와 같은 격자 치수 계산(캔버스 backing store 좌표 기준) -
-  // 후보 지점을 같은 격자 교차점 위에 정확히 겹쳐 그리려면 동일한 공식이어야 함.
-  function metrics(canvasSize: number, boardSize: number) {
-    const margin = canvasSize / (boardSize + 1);
-    const step = (canvasSize - margin * 2) / (boardSize - 1);
-    return { margin, step };
-  }
-
   function draw() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
@@ -89,8 +84,9 @@
     const result = analysisStore.current?.result;
     if (!result) return;
 
-    const boardSize = boardStore.size;
-    const { margin, step } = metrics(size, boardSize);
+    const boardSize = gameTreeStore.size;
+    const metrics = gridMetrics(size, boardSize);
+    const { step } = metrics;
     const spotRadius = step * 0.475; // BoardCanvas의 돌 반지름과 같은 비율 - 칸을 꽉 채움
 
     // analysisStore.current는 (OwnershipOverlay와 달리) 조상 노드로 fallback하지
@@ -103,7 +99,7 @@
     const spots = [...result.candidates]
       .filter((c) => {
         const vertex = fromVertex(c.move, boardSize);
-        return !vertex || boardStore.isEmpty(vertex.x, vertex.y);
+        return !vertex || gameTreeStore.isEmpty(vertex.x, vertex.y);
       })
       .sort((a, b) => b.visits - a.visits)
       .slice(0, MAX_SPOTS);
@@ -118,7 +114,7 @@
     const maxWinrate = Math.max(...winrates);
     const winrateRange = maxWinrate - minWinrate;
 
-    const pending = boardStore.pendingMove;
+    const pending = pendingMoveStore.pendingMove;
 
     for (const candidate of spots) {
       const vertex = fromVertex(candidate.move, boardSize);
@@ -128,8 +124,7 @@
       // "어디를 두려는지"가 안 보이게 됨. 추천 정보보다 지금 두려는 위치 확인이
       // 우선이므로 그 칸만 건너뛴다.
       if (pending && pending.x === vertex.x && pending.y === vertex.y) continue;
-      const cx = margin + vertex.x * step;
-      const cy = margin + vertex.y * step;
+      const { cx, cy } = cellCenter(vertex.x, vertex.y, metrics);
 
       const t =
         winrateRange === 0
@@ -168,39 +163,22 @@
   }
 
   $effect(() => {
-    if (!canvasEl) return;
-    const parent = canvasEl.parentElement;
-    if (!parent) return;
-
-    const resize = () => {
-      if (!canvasEl) return;
-      const dpr = window.devicePixelRatio || 1;
-      const cssSize = parent.clientWidth;
-      canvasEl.width = Math.round(cssSize * dpr);
-      canvasEl.height = Math.round(cssSize * dpr);
-      draw();
-    };
-
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(parent);
-
-    return () => observer.disconnect();
-  });
-
-  $effect(() => {
     // 보드 크기, 최신 분석 결과, 착수 예정 위치(pendingMove - 바뀔 때마다 가려야 할
     // 칸도 바뀜), 표시 토글 변경 시 다시 그림 (analysisStore.current는 kata-analyze
     // 이벤트마다 또는 노드 이동 시 새 값으로 바뀌므로 참조만 읽어도 반응함)
-    boardStore.size;
-    boardStore.pendingMove;
+    gameTreeStore.size;
+    pendingMoveStore.pendingMove;
     analysisStore.current;
     analysisStore.showAnalysis;
     draw();
   });
 </script>
 
-<canvas bind:this={canvasEl} class="board-layer analysis-overlay"></canvas>
+<canvas
+  bind:this={canvasEl}
+  class="board-layer analysis-overlay"
+  use:canvasLayer={draw}
+></canvas>
 
 <style>
   .board-layer {

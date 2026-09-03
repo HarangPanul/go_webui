@@ -15,7 +15,7 @@
   import GameControls from "../components/game/GameControls.svelte";
   import WinrateGraph from "../components/game/WinrateGraph.svelte";
   import CaptureCounter from "../components/game/CaptureCounter.svelte";
-  import { boardStore } from "../stores/board.svelte";
+  import { pendingMoveStore } from "../stores/pendingMove.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
@@ -24,7 +24,7 @@
   // board-area 자신이 아니므로(각자 자기 클릭을 먼저 처리) 여기서는 무시된다.
   function handleBoardAreaClick(evt: MouseEvent) {
     if (evt.target === evt.currentTarget) {
-      boardStore.cancelPending();
+      pendingMoveStore.cancelPending();
     }
   }
 </script>

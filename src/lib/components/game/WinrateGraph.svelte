@@ -16,15 +16,15 @@
   // kata-analyze의 첫 결과가 안 왔거나, 애초에 분석 없이 지나온 위치) - 이 경우
   // 그대로 50:50으로 보여주면 착수/이동할 때마다 잠깐 반반으로 꺼졌다가 몇 백ms 뒤
   // 값이 돌아오는 것처럼 보인다. 그래서 현재 노드부터 시작해 조상 방향으로(자기 자신
-  // 포함, boardStore.ancestorChain이 가까운 순서로 줌) 캐싱된 결과가 있는 가장 가까운
+  // 포함, gameTreeStore.ancestorChain이 가까운 순서로 줌) 캐싱된 결과가 있는 가장 가까운
   // 노드의 값을 대신 보여준다 - 완전히 같은 위치는 아닐 수 있지만 보통 한두 수 차이라
   // 훨씬 자연스럽고, 그마저도 하나 없으면(트리 전체가 한 번도 분석된 적 없음) 그제서야
   // 50:50으로 표시한다.
   import { analysisStore } from "../../stores/analysis.svelte";
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
 
   const blackWinrate = $derived.by(() => {
-    for (const nodeId of boardStore.ancestorChain) {
+    for (const nodeId of gameTreeStore.ancestorChain) {
       const cached = analysisStore.forNode(nodeId);
       const top = cached?.result.candidates[0];
       if (!top) continue;
@@ -45,7 +45,7 @@
   // 자체는 계속 winrate 비율로 그리고(직관적인 흑/백 우세 시각화), 하단 글씨만
   // scoreLead로 바꿔 "몇 집 차이인지"라는 더 구체적인 정보를 보여준다.
   const blackScoreLead = $derived.by(() => {
-    for (const nodeId of boardStore.ancestorChain) {
+    for (const nodeId of gameTreeStore.ancestorChain) {
       const cached = analysisStore.forNode(nodeId);
       const top = cached?.result.candidates[0];
       if (!top) continue;
@@ -55,10 +55,10 @@
     return 0;
   });
 
-  // 지금 둘 차례인 돌(boardStore.currentTurn) 기준 집 차이. blackScoreLead는 항상
+  // 지금 둘 차례인 돌(gameTreeStore.currentTurn) 기준 집 차이. blackScoreLead는 항상
   // "흑 기준"으로 정규화돼 있으므로, 지금이 백 차례면 부호만 뒤집으면 됨.
   const currentTurnScoreLead = $derived(
-    boardStore.currentTurn === "black" ? blackScoreLead : -blackScoreLead,
+    gameTreeStore.currentTurn === "black" ? blackScoreLead : -blackScoreLead,
   );
   const scoreLeadLabel = $derived(
     currentTurnScoreLead >= 0

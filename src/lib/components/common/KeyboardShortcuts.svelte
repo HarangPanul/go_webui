@@ -12,7 +12,8 @@
   // changeColor로 오인해 동시에 발동해버리는 문제가 있었다. 모든
   // keybindingsStore 기반 단축키를 이 컴포넌트 하나로 모아 시퀀스 버퍼를
   // 일원화해야 그런 오작동이 없다.
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
+  import { engineColorsStore } from "../../stores/engineColors.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
@@ -44,7 +45,7 @@
   }
 
   function toggleEngineColor(color: "black" | "white") {
-    boardStore.setEngineColor(color, !boardStore.engineColors[color]);
+    engineColorsStore.setEngineColor(color, !engineColorsStore.engineColors[color]);
   }
 
   function toggleAnalysis() {
@@ -58,11 +59,11 @@
   }
 
   const ACTION_HANDLERS: Record<KeyAction, () => void> = {
-    confirmMove: () => boardStore.confirmMove(),
-    back: () => boardStore.goBack(),
-    goForward: () => boardStore.goForward(),
-    removeLastMove: () => boardStore.removeLastMove(),
-    changeColor: () => boardStore.toggleTurn(),
+    confirmMove: () => gameTreeStore.confirmMove(),
+    back: () => gameTreeStore.goBack(),
+    goForward: () => gameTreeStore.goForward(),
+    removeLastMove: () => gameTreeStore.removeLastMove(),
+    changeColor: () => gameTreeStore.toggleTurn(),
     engineConnect: () => toggleEngineConnection(),
     engineWhite: () => toggleEngineColor("white"),
     engineBlack: () => toggleEngineColor("black"),

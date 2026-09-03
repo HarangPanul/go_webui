@@ -20,7 +20,7 @@
 //   reset()을 호출할 때만 비워진다.
 import { listen } from "@tauri-apps/api/event";
 import type { KataAnalyzeEvent, KataAnalyzeResult } from "../generated/bindings";
-import { boardStore } from "./board.svelte";
+import { gameTreeStore } from "./gameTree.svelte";
 
 interface NodeAnalysis {
   result: KataAnalyzeResult;
@@ -53,9 +53,9 @@ function createAnalysisStore() {
     // 분석한 적이 없다는 뜻). WinrateGraph/AnalysisOverlay/OwnershipOverlay가
     // 이걸로 result/forColor를 항상 한 쌍으로만 읽는다.
     get current() {
-      return results.get(boardStore.nodeId) ?? null;
+      return results.get(gameTreeStore.nodeId) ?? null;
     },
-    // 임의의 노드 id로 조회. WinrateGraph가 boardStore.ancestorChain을 따라가며
+    // 임의의 노드 id로 조회. WinrateGraph가 gameTreeStore.ancestorChain을 따라가며
     // 가장 가까운(자기 자신 포함) 조상 중 캐싱된 결과가 있는 노드를 찾는 데 사용.
     forNode(nodeId: number) {
       return results.get(nodeId) ?? null;

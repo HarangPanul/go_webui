@@ -7,7 +7,7 @@
   // 지금 노드 자체는 아직 한 번도 분석된 적이 없을 수 있다(막 이동한 직후 아직
   // kata-analyze의 첫 결과가 안 왔거나, 애초에 분석 없이 지나온 위치) - 이 경우
   // WinrateGraph.svelte와 같은 방식으로 현재 노드부터 조상 방향으로(자기 자신 포함,
-  // boardStore.ancestorChain이 가까운 순서로 줌) 캐싱된 ownership이 있는 가장 가까운
+  // gameTreeStore.ancestorChain이 가까운 순서로 줌) 캐싱된 ownership이 있는 가장 가까운
   // 노드의 값을 대신 보여준다 - 완전히 같은 위치는 아닐 수 있지만 지형이 크게 다르지
   // 않은 한두 수 차이라 계속 뭔가 보이는 편이 매 이동마다 오버레이가 깜빡이며 사라지는
   // 것보다 낫다. AnalysisOverlay(bluespot 후보 지점)는 반대로 이런 조상 fallback 없이
@@ -34,22 +34,17 @@
   //   forColor)" 기준 - 양수면 forColor 소유, 음수면 상대 소유. 그래서 아래
   //   변환은 forColor==black일 때 raw를 그대로(양수=흑), white일 때 -raw로
   //   반전시켜(양수=흑) "흑 기준" 값을 얻는다 - 추가 반전 없이 이게 정답.
-  import { boardStore } from "../../stores/board.svelte";
+  import { gameTreeStore } from "../../stores/gameTree.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
+  import { cellCenter, gridMetrics } from "../../canvas/boardGrid";
+  import { canvasLayer } from "../../canvas/canvasLayer";
 
   let canvasEl: HTMLCanvasElement | undefined = $state();
-
-  // BoardCanvas.svelte와 같은 격자 치수 계산(캔버스 backing store 좌표 기준)
-  function metrics(canvasSize: number, boardSize: number) {
-    const margin = canvasSize / (boardSize + 1);
-    const step = (canvasSize - margin * 2) / (boardSize - 1);
-    return { margin, step };
-  }
 
   // 현재 노드부터 조상 방향으로 캐싱된 ownership이 있는 가장 가까운 노드를 찾음
   // (WinrateGraph.svelte의 blackWinrate/blackScoreLead와 같은 패턴).
   function nearestOwnership(): { ownership: number[]; forColor: "black" | "white" } | null {
-    for (const nodeId of boardStore.ancestorChain) {
+    for (const nodeId of gameTreeStore.ancestorChain) {
       const cached = analysisStore.forNode(nodeId);
       if (cached?.result.ownership) {
         // 각 지점 값도 이론상 항상 있지만(winrate와 같은 이유로 number | null) 실제로
@@ -75,10 +70,11 @@
     if (!current) return;
     const { ownership, forColor } = current;
 
-    const boardSize = boardStore.size;
+    const boardSize = gameTreeStore.size;
     if (ownership.length !== boardSize * boardSize) return; // 보드 크기와 안 맞으면(스트림 전환 중 등) 건너뜀
 
-    const { margin, step } = metrics(size, boardSize);
+    const metrics = gridMetrics(size, boardSize);
+    const { step } = metrics;
     // 이미 돌이 있는 칸은 사각형이 돌을 완전히 덮어버리면 실제 착수된 돌 색을
     // 구분할 수 없으므로, 칸을 꽉 채우던 0.88에서 절반(0.5)으로 줄여 그 밑의
     // 돌/바둑판이 계속 비쳐 보이게 함.
@@ -99,8 +95,7 @@
         // 가운데(경합 지점, 0 근처)일수록 투명해지고 확정적인 곳일수록 진하게 보임.
         const color = blackOwnership >= 0 ? "0, 0, 0" : "255, 255, 255";
         const alpha = Math.abs(blackOwnership);
-        const cx = margin + x * step;
-        const cy = margin + y * step;
+        const { cx, cy } = cellCenter(x, y, metrics);
 
         ctx.fillStyle = `rgba(${color}, ${alpha})`;
         ctx.fillRect(cx - half, cy - half, squareSide, squareSide);
@@ -110,35 +105,18 @@
   }
 
   $effect(() => {
-    if (!canvasEl) return;
-    const parent = canvasEl.parentElement;
-    if (!parent) return;
-
-    const resize = () => {
-      if (!canvasEl) return;
-      const dpr = window.devicePixelRatio || 1;
-      const cssSize = parent.clientWidth;
-      canvasEl.width = Math.round(cssSize * dpr);
-      canvasEl.height = Math.round(cssSize * dpr);
-      draw();
-    };
-
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(parent);
-
-    return () => observer.disconnect();
-  });
-
-  $effect(() => {
-    boardStore.size;
-    boardStore.ancestorChain;
+    gameTreeStore.size;
+    gameTreeStore.ancestorChain;
     analysisStore.showOwnership;
     draw();
   });
 </script>
 
-<canvas bind:this={canvasEl} class="board-layer ownership-overlay"></canvas>
+<canvas
+  bind:this={canvasEl}
+  class="board-layer ownership-overlay"
+  use:canvasLayer={draw}
+></canvas>
 
 <style>
   .board-layer {

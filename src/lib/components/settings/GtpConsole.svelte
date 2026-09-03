@@ -2,40 +2,22 @@
   // 이번 Phase(원격 엔진 SSH 연동)의 최종 검증용 콘솔: 임의 GTP 명령을 보내고 응답을
   // 확인. kata-analyze 스트리밍 이벤트도 함께 로그로 찍어서 실전 데이터로 파이프라인이
   // 살아있는지 눈으로 바로 확인할 수 있게 함. 바둑판 위 오버레이 렌더링은 Phase 3.
-  import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
+  //
+  // 실제 invoke()/이벤트 구독은 전부 gtpStore(stores/gtp.svelte.ts)가 담당 - 이
+  // 컴포넌트는 그 결과(log)를 보여주고 입력을 store로 전달하기만 하는 순수 프레젠테이션.
   import { t } from "../../i18n";
-  import { appErrorMessage } from "../../appError";
   import { connectionStore } from "../../stores/connection.svelte";
-  import type { KataAnalyzeResult } from "../../generated/bindings";
-
-  interface LogEntry {
-    kind: "sent" | "received" | "analysis" | "error";
-    text: string;
-  }
+  import { gtpStore } from "../../stores/gtp.svelte";
 
   let command = $state("");
-  let log = $state<LogEntry[]>([]);
   let sending = $state(false);
-
-  listen<KataAnalyzeResult>("kata-analyze", (event) => {
-    const top = event.payload.candidates[0];
-    const text = top
-      ? `info: ${event.payload.candidates.length} candidates, top ${top.move} winrate=${(top.winrate ?? 0).toFixed(3)} visits=${top.visits}`
-      : "info: (empty)";
-    log.push({ kind: "analysis", text });
-  });
 
   async function send() {
     const cmd = command.trim();
     if (!cmd) return;
-    log.push({ kind: "sent", text: cmd });
     sending = true;
     try {
-      const response = await invoke<string>("send_gtp_command", { command: cmd });
-      log.push({ kind: "received", text: response || "(empty response)" });
-    } catch (e) {
-      log.push({ kind: "error", text: appErrorMessage(e) });
+      await gtpStore.send(cmd);
     } finally {
       sending = false;
       command = "";
@@ -54,7 +36,7 @@
 
 <div class="gtp-console">
   <div class="log">
-    {#each log as entry, i (i)}
+    {#each gtpStore.log as entry, i (i)}
       <p class="log-entry {entry.kind}">{entry.text}</p>
     {/each}
   </div>
