@@ -7,9 +7,11 @@
 // 처리할 수 있게 한다. lib.rs의 invoke_handler 목록을 플랫폼별로 분기하지 않아도
 // 되도록, 커맨드 등록 자체는 항상 하고 이 모듈 내부에서만 cfg로 분기함.
 use serde::Serialize;
+#[cfg(desktop)]
 use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
+#[cfg(desktop)]
 use crate::ssh::keystore::detect_passphrase;
 
 /// 프론트로 내려가는 감지된 key 요약 정보. key 원문은 포함하지 않고, 사용자가

@@ -218,7 +218,7 @@
   }
 
   /* 다음 착수 색 전환 버튼 안의 돌 이미지 */
-  .game-controls :global(.color-toggle) img {
+  .game-controls :global(.color-toggle img) {
     width: 100%;
     height: 100%;
     object-fit: contain;
