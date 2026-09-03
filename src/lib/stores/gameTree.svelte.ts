@@ -1,8 +1,8 @@
 // 게임 트리 상태 store: 착수/따내기/게임 트리 판정은 전부 Rust(src-tauri/src/game)에서
-// 처리하고, 여기서는 그 결과 스냅샷을 담아두는 것만 담당하는 얇은 클라이언트 -
-// board.svelte.ts("god store")에서 pendingMove(임시 선택 UI 상태)/engineColors(엔진
-// 자동 착수 설정)를 분리해낸 것. 이 파일은 스냅샷 자체와 그걸 바꾸는 6개 커맨드
-// 래퍼(confirmMove/passMove/goBack/goForward/removeLastMove/toggleTurn)만 담당한다.
+// 처리하고, 여기서는 그 결과 스냅샷을 담아두는 것만 담당하는 얇은 클라이언트. 이
+// 파일은 스냅샷 자체와 그걸 바꾸는 6개 커맨드 래퍼(confirmMove/passMove/goBack/
+// goForward/removeLastMove/toggleTurn)만 담당하고, 임시 선택 UI 상태는
+// pendingMove.svelte.ts, 엔진 자동 착수 설정은 engineColors.svelte.ts가 따로 맡는다.
 //
 // confirmMove/passMove/goBack/goForward/removeLastMove는 pendingMove(다른
 // store - pendingMove.svelte.ts)를 읽고 끝나면 비워야 해서 그쪽을 import한다 -

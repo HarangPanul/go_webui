@@ -38,9 +38,8 @@ pub fn is_analysis_line(line: &str) -> bool {
 /// `info move Q16 visits 123 winrate 0.5432 scoreLead 1.23 ... pv Q16 D4 ... info move
 /// D4 ...` 형태로 후보 수들을 이어붙인 한 줄을 후보 목록으로 파싱.
 ///
-/// `moveNumber`는 원본 라인에 없는 정보라 이번 Phase에서는 항상 0으로 채운다 — 로컬
-/// 게임 트리의 착수 수와 맞물리는 건 board 자동 mirroring을 붙일 때(Phase 3) 채워 넣을
-/// 지점.
+/// `moveNumber`는 원본 GTP 응답에 없는 정보라 항상 0으로 채운다(현재 프런트가 이
+/// 필드를 쓰지 않음 - 로컬 게임 트리의 착수 수와 맞물리려면 별도로 채워 넣어야 함).
 pub fn parse_kata_analyze(line: &str) -> Option<KataAnalyzeResult> {
     let mut candidates: Vec<KataAnalyzeMove> = Vec::new();
     // 마지막 move 블록에서만 의미 있음 - "ownership ..." 같은 줄 전체 단위 트레일링

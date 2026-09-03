@@ -329,7 +329,7 @@
 
   // 방향키(임시 선택 이동)만 처리 - confirmMove/back/removeLastMove/changeColor 등
   // Settings에서 재배정 가능한 단축키는 전부 KeyboardShortcuts.svelte(앱 최상단에서
-  // 한 번만 마운트)로 옮겨졌음. 방향키는 재배정 대상이 아니라 여기 그대로 둠.
+  // 한 번만 마운트)가 처리한다. 방향키는 재배정 대상이 아니므로 여기서 직접 처리.
   function handleKeyDown(evt: KeyboardEvent) {
     // 다른 곳(입력창 등)에 포커스가 있거나 다른 단축키 조합이면 무시
     const target = evt.target as HTMLElement | null;

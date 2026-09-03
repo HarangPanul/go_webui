@@ -1,6 +1,5 @@
 <script lang="ts">
-  // 공용 숫자 입력 - KomiForm(step=0.5)/ServerProfileForm(포트, min/max)이 각자
-  // 갖고 있던 입력창 스타일을 TextInput과 동일한 톤으로 통일.
+  // 공용 숫자 입력. TextInput과 같은 톤(테두리/둥근 모서리/투명 배경).
   import type { HTMLInputAttributes } from "svelte/elements";
 
   type Props = Omit<HTMLInputAttributes, "type" | "value"> & {

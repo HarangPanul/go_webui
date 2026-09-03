@@ -1,15 +1,10 @@
-// 앱 전역 에러 타입. 예전에는 모든 커맨드가 `Result<T, String>`을 반환해서 실패
-// 종류를 코드로 구분할 방법이 없었는데(문자열 내용을 보고 추측하는 수밖에 없었음),
-// 이제는 Rust 쪽에서 종류별로 갈라진 enum이라 앞으로 새 코드를 짤 때 `match`로
-// 안전하게 분기할 수 있다.
+// 앱 전역 에러 타입. 실패 종류별로 갈라진 enum이라 `match`로 안전하게 분기할 수
+// 있다.
 //
-// 6단계(tauri-specta 연결)에서 구조화된 형태로 프런트에 노출하도록 다시 설계함:
-// `{ kind, message }` 객체로 직렬화하되, message는 여전히 각 variant의 Display(=
-// #[error(...)] 메시지) 문자열 그대로라 화면에 보이는 문구 자체는 한 글자도 바뀌지
-// 않는다 - GtpConsole.svelte/ServerProfileForm.svelte/SshKeyInput.svelte/
-// connection.svelte.ts의 catch(e) 쪽만 `String(e)` 대신 `e.message`를 읽도록
-// 맞춰 고쳤다(appError.ts::appErrorMessage 참고). `kind`는 지금 당장 이 태그로
-// 분기하는 프런트 코드는 없지만, 이제 최소한 그게 가능은 하다.
+// 프런트에는 `{ kind, message }` 구조화된 객체로 직렬화된다. message는 각
+// variant의 Display(= #[error(...)] 메시지) 문자열이라 화면에 그대로 보여줄
+// 한국어 에러 문구고(appError.ts::appErrorMessage 참고), `kind`는 지금 당장 이
+// 태그로 분기하는 프런트 코드는 없지만 나중을 위한 태그다.
 //
 // Serialize/specta::Type을 derive하지 않고 손으로 구현한 이유: variant마다 실려
 // 있는 필드가 다르고(유닛 variant는 아예 없음) 실제로 내보내고 싶은 값은 그 필드가

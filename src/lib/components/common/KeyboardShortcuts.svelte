@@ -3,15 +3,14 @@
   // 단축키(엔진 연결/흑·백 자동 착수 on-off/Analysis/Ownership/설정 열기)를 한
   // 곳에서 처리하는 컴포넌트. App.svelte 최상단에 한 번만 마운트한다.
   //
-  // confirmMove/back/removeLastMove/changeColor(방향키 이동은 제외)도 원래
-  // BoardCanvas.svelte에 있었지만 여기로 옮겼다 - 새로 추가된 단축키들
-  // (engineConnect/engineWhite/... = "e" + 두 번째 글자로 된 두 글자 시퀀스)의
-  // 뒷글자가 기존 단축키(changeColor 기본값 "c" 등)와 겹칠 수 있어서, 리스너가
-  // BoardCanvas와 여기 두 곳으로 나뉘어 있으면 "ec"를 누를 때 "e"는 여기서
-  // 시퀀스 버퍼에 담기지만 뒤이은 "c"는 BoardCanvas 쪽 리스너가 독립적으로
-  // changeColor로 오인해 동시에 발동해버리는 문제가 있었다. 모든
+  // confirmMove/back/removeLastMove/changeColor(방향키 이동은 제외)도 반드시 이
+  // 컴포넌트 하나에서만 처리해야 한다 - 두 글자 시퀀스 단축키(engineConnect/
+  // engineWhite/... = "e" + 두 번째 글자)의 뒷글자가 기존 단축키(changeColor
+  // 기본값 "c" 등)와 겹칠 수 있어서, 리스너가 여러 컴포넌트로 나뉘어 있으면 "ec"를
+  // 누를 때 "e"는 여기서 시퀀스 버퍼에 담기지만 뒤이은 "c"를 다른 리스너가
+  // 독립적으로 changeColor로 오인해 동시에 발동해버리는 오작동이 생긴다. 모든
   // keybindingsStore 기반 단축키를 이 컴포넌트 하나로 모아 시퀀스 버퍼를
-  // 일원화해야 그런 오작동이 없다.
+  // 일원화해야 그런 문제가 없다.
   import { gameTreeStore } from "../../stores/gameTree.svelte";
   import { engineColorsStore } from "../../stores/engineColors.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";

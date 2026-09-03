@@ -1,9 +1,8 @@
 <script lang="ts">
-  // 공용 label+입력 패턴 - KomiForm/InstantMoveForm(label 좌 + 입력 우, layout="row")과
-  // ServerProfileForm(label 위 + 입력 아래, layout="column")이 각자 갖고 있던 두
-  // 레이아웃을 하나로 합침. label을 input의 부모로 그대로 감싸므로(원래
-  // ServerProfileForm 방식) for/id를 따로 맞출 필요 없이 두 레이아웃 모두에서
-  // 암묵적 label-input 연결이 그대로 성립한다.
+  // 공용 label+입력 패턴. layout="row"(label 좌 + 입력 우)와 layout="column"
+  // (label 위 + 입력 아래) 두 배치를 지원한다. label이 input을 그대로 감싸므로
+  // for/id를 따로 맞추지 않아도 두 레이아웃 모두에서 암묵적 label-input 연결이
+  // 성립한다.
   import type { Snippet } from "svelte";
 
   let {

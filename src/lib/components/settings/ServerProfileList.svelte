@@ -130,7 +130,7 @@
     flex-shrink: 0;
   }
 
-  /* 목록 안 버튼은 본문보다 작게(원래도 기본 버튼보다 좁은 패딩/글자 크기였음) */
+  /* 목록 안 버튼은 본문보다 작게(좁은 패딩 + 작은 글자 크기) */
   .profile-actions :global(.ui-button) {
     padding: var(--space-3) var(--space-5);
     font-size: 0.8rem;

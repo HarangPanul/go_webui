@@ -1,7 +1,6 @@
-// 임시 선택(아직 서버에 확정 요청을 보내지 않은 UI 상태) store -
-// board.svelte.ts("god store")에서 분리해낸 것. 실제 확정(invoke("confirm_move"))은
-// gameTree.svelte.ts가 담당하고(그쪽이 이 store를 읽고 끝나면 비움), 여기서는 순수
-// "지금 어느 칸을 임시로 가리키고 있는지"만 관리한다.
+// 임시 선택(아직 서버에 확정 요청을 보내지 않은 UI 상태) store. 실제 확정
+// (invoke("confirm_move"))은 gameTree.svelte.ts가 담당하고(그쪽이 이 store를 읽고
+// 끝나면 비움), 여기서는 순수 "지금 어느 칸을 임시로 가리키고 있는지"만 관리한다.
 //
 // pendingOnStone은 gameTree.svelte.ts의 stones를 읽어야 해서 그쪽을 import한다 -
 // gameTree.svelte.ts도 confirmMove 등에서 반대 방향으로 이 파일을 import하는데,

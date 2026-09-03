@@ -1,7 +1,6 @@
-// 엔진 자동 착수 설정(흑/백 각각 독립 on/off) store - board.svelte.ts("god store")
-// 에서 분리해낸 것. 둘 다 켜져 있으면 엔진이 자기 자신과 대국하듯 양쪽을 모두 계속
-// 두고, 둘 다 꺼져 있으면 자동 착수 없이 사람이 양쪽을 다 둠 - Rust
-// state::EngineColors와 필드 대응(serde camelCase).
+// 엔진 자동 착수 설정(흑/백 각각 독립 on/off) store. 둘 다 켜져 있으면 엔진이
+// 자기 자신과 대국하듯 양쪽을 모두 계속 두고, 둘 다 꺼져 있으면 자동 착수 없이
+// 사람이 양쪽을 다 둠 - Rust state::EngineColors와 필드 대응(serde camelCase).
 import { invoke } from "@tauri-apps/api/core";
 
 export interface EngineColors {

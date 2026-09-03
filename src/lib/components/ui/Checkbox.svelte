@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 공용 체크박스 - InstantMoveForm의 20x20 체크박스 크기를 그대로 옮김.
+  // 공용 체크박스 (20x20).
   import type { HTMLInputAttributes } from "svelte/elements";
 
   type Props = Omit<HTMLInputAttributes, "type" | "checked"> & {

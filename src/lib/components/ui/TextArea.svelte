@@ -1,6 +1,5 @@
 <script lang="ts">
-  // 공용 여러 줄 텍스트 입력 - SshKeyInput의 key 붙여넣기 textarea 스타일을 그대로
-  // 옮김(monospace + resize: vertical).
+  // 공용 여러 줄 텍스트 입력 (monospace + resize: vertical).
   import type { HTMLTextareaAttributes } from "svelte/elements";
 
   type Props = Omit<HTMLTextareaAttributes, "value"> & {

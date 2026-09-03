@@ -32,10 +32,10 @@
   // send_gtp_command 대신 이 전용 커맨드를 쓰는 이유: 백엔드가 명령을 실제로 보내는
   // 바로 그 시점에 "지금 게임 트리 어느 노드, 어느 색 차례인지"를 함께 기록해둬야
   // (commands::gtp::start_kata_analyze / process.rs::AnalysisContext) 이어서 오는
-  // "info" 결과들이 정확히 그 노드에 태깅되어 emit된다 - 프런트에서 별도로 forColor를
-  // 추적해 끼워 맞추던 예전 방식은 착수 직후 forColor가 먼저 바뀌고 실제 데이터는
-  // 나중에 도착하는 타이밍 차이 때문에 승률/ownership이 매 착수마다 잠깐 반대로
-  // 튀는(요동치는) 버그가 있었다.
+  // "info" 결과들이 정확히 그 노드에 태깅되어 emit된다. forColor를 프런트에서 별도로
+  // 추적해 끼워 맞추면, 착수 직후 forColor는 곧바로 바뀌는데 실제 데이터는 나중에
+  // 도착하는 타이밍 차이 때문에 승률/ownership이 매 착수마다 잠깐 반대로 튀는
+  // (요동치는) 결과를 낳는다.
   //
   // "ownership true"는 항상 붙여 보낸다 - kata-analyze는 Analysis(블루스팟)/Ownership
   // 두 기능이 공유하는 단 하나의 스트림이라, 굳이 옵션을 나눠서 필요할 때만 요청할
@@ -179,9 +179,9 @@
     →
   </Button>
   <!-- 이미 돌이 있는 칸을 가리키고 있을 때도 버튼 자체는 항상 그대로 표시하되,
-  confirmMove()가 그 경우 아무 동작도 하지 않으므로(임의의 돌 제거 기능 폐지) 눌러도
-  아무 효과가 없음. 취소는 별도 버튼 없이 BoardCanvas에서 현재 임시 선택 지점을 다시
-  누르면 됨(cancelPending 호출) - board/BoardCanvas.svelte 참고. -->
+  confirmMove()가 그 경우 아무 동작도 하지 않으므로 눌러도 아무 효과가 없음. 취소는
+  별도 버튼 없이 BoardCanvas에서 현재 임시 선택 지점을 다시 누르면 됨(cancelPending
+  호출) - board/BoardCanvas.svelte 참고. -->
   <Button
     variant="primary"
     disabled={!pendingMoveStore.pendingMove}

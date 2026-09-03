@@ -1,7 +1,6 @@
 <script lang="ts">
-  // 공용 드롭다운 - SshKeyInput의 감지된 SSH key 목록 select 스타일을 그대로 옮김.
-  // option들은 호출부가 children으로 직접 렌더링(값 목록의 형태가 컴포넌트마다
-  // 다르므로 이 컴포넌트는 틀만 제공).
+  // 공용 드롭다운. option들은 호출부가 children으로 직접 렌더링(값 목록의 형태가
+  // 컴포넌트마다 다르므로 이 컴포넌트는 틀만 제공).
   import type { Snippet } from "svelte";
   import type { HTMLSelectAttributes } from "svelte/elements";
 
