@@ -3,8 +3,11 @@
   import { gameTreeStore } from "../../stores/gameTree.svelte";
   import { pendingMoveStore } from "../../stores/pendingMove.svelte";
   import { instantMoveStore } from "../../stores/instantMove.svelte";
+  import { pendingCrosshairStore } from "../../stores/pendingCrosshair.svelte";
+  import { engineConnectPickerStore } from "../../stores/engineConnectPicker.svelte";
   import { cellCenter, gridMetrics, nearestCell } from "../../canvas/boardGrid";
   import { canvasLayer } from "../../canvas/canvasLayer";
+  import { COLUMN_LETTERS } from "../../utils/coords";
   // 바둑판 배경: 실제 나무 질감 이미지로 교체 가능하도록 파일에서 로드
   // (현재는 단순 갈색 placeholder, src-tauri/icons와 마찬가지로 추후 실제 에셋으로 교체 예정)
   import boardBackgroundUrl from "../../../assets/board-background.png";
@@ -135,6 +138,38 @@
     ctx.restore();
   }
 
+  // 가장자리 좌표 표시: 아래쪽에 열(A, B, ... - 관례상 I 건너뜀), 왼쪽에 행 번호.
+  // GTP 표기와 맞추려고 위쪽부터 0-based인 로컬 y를 "size - y"로 뒤집어서 그린다
+  // (로컬 y=0은 화면 맨 윗줄이지만 GTP/실제 바둑판 관례로는 그게 가장 큰 행 번호 -
+  // src-tauri/src/gtp/coords.rs 상단 설명 참고). 위/오른쪽에는 안 그리는데, 위쪽은
+  // PASS 안내 문구(drawPass 부분)가 가운데를 이미 쓰고 있어서 겹치기 때문 -
+  // 아래/왼쪽만으로도 어느 칸인지 읽기엔 충분하다.
+  function drawCoordinateLabels(
+    ctx: CanvasRenderingContext2D,
+    margin: number,
+    step: number,
+    boardSize: number,
+    canvasSize: number,
+  ) {
+    ctx.save();
+    ctx.fillStyle = "#2b1a0e";
+    ctx.font = `${Math.round(Math.max(8, margin * 0.45))}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const colY = canvasSize - margin * 0.5;
+    for (let x = 0; x < boardSize; x++) {
+      ctx.fillText(COLUMN_LETTERS[x], margin + x * step, colY);
+    }
+
+    const rowX = margin * 0.5;
+    for (let y = 0; y < boardSize; y++) {
+      ctx.fillText(String(boardSize - y), rowX, margin + y * step);
+    }
+
+    ctx.restore();
+  }
+
   function draw() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
@@ -181,6 +216,8 @@
         }
       }
     }
+
+    drawCoordinateLabels(ctx, margin, step, boardSize, size);
 
     // 실제 착수된 돌
     const pending = pendingMoveStore.pendingMove;
@@ -234,7 +271,9 @@
         // 빈 칸을 선택한 경우: 착수될 돌을 반투명 미리보기로 표시
         drawStone(ctx, cx, cy, stoneRadius, gameTreeStore.currentTurn, 0.45);
       }
-      drawCrosshair(ctx, cx, cy, margin, size, gridLineWidth);
+      if (pendingCrosshairStore.enabled) {
+        drawCrosshair(ctx, cx, cy, margin, size, gridLineWidth);
+      }
     }
   }
 
@@ -331,6 +370,10 @@
   // Settings에서 재배정 가능한 단축키는 전부 KeyboardShortcuts.svelte(앱 최상단에서
   // 한 번만 마운트)가 처리한다. 방향키는 재배정 대상이 아니므로 여기서 직접 처리.
   function handleKeyDown(evt: KeyboardEvent) {
+    // 엔진 선택창이 떠 있는 동안은 위/아래 화살표가 그 창의 항목 이동에 쓰이므로
+    // (KeyboardShortcuts.svelte) 여기서 임시 선택까지 같이 움직이면 안 됨.
+    if (engineConnectPickerStore.isOpen) return;
+
     // 다른 곳(입력창 등)에 포커스가 있거나 다른 단축키 조합이면 무시
     const target = evt.target as HTMLElement | null;
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -370,6 +413,7 @@
     gameTreeStore.lastMove;
     gameTreeStore.lastMoveIsPass;
     gameTreeStore.currentChildren;
+    pendingCrosshairStore.enabled;
     backgroundReady;
     stoneReady.black;
     stoneReady.white;

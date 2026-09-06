@@ -13,6 +13,7 @@ export type KeyAction =
   | "back"
   | "goForward"
   | "removeLastMove"
+  | "cancelPendingMove"
   | "engineConnect"
   | "engineWhite"
   | "engineBlack"
@@ -30,6 +31,11 @@ const DEFAULT_BINDINGS: Record<KeyAction, string> = {
   back: "[",
   goForward: "]",
   removeLastMove: "r",
+  // Esc는 이미 두 글자 시퀀스 버퍼를 비우는 데 쓰이고 있어서(KeyboardShortcuts.svelte) -
+  // 시퀀스 대기 중(예: "e"를 누르고 다음 글자를 기다리는 상태)에 Esc를 누르면 그
+  // 버퍼부터 비우는 게 우선이라, 그 순간에는 임시 선택이 있어도 취소되지 않는 사각
+  // 지대가 생긴다. 그런 우선순위 다툼이 아예 없는 키를 기본값으로 둔다.
+  cancelPendingMove: "Backspace",
   engineConnect: "ec",
   engineWhite: "ew",
   engineBlack: "eb",
@@ -48,6 +54,27 @@ function normalize(key: string): string {
   return key.toLowerCase();
 }
 
+// Esc는 어떤 액션에도 재배정할 수 없다 - 이미 두 글자 시퀀스 버퍼를 비우는 데
+// 고정으로 쓰이고 있어서(KeyboardShortcuts.svelte), 다른 액션에도 배정해두면
+// 시퀀스 대기 중엔 버퍼 비우기가 항상 먼저 소비해버려 그 액션이 조용히 씹히는
+// 사각지대가 생긴다. KeybindingsForm의 "키 변경" 캡처도 Esc를 누르면 취소로
+// 처리해 애초에 이 값으로 setKey를 호출하지 않지만, 그 UI를 우회해서 호출되는
+// 경로가 생겨도 안전하도록 여기서 한 번 더 막는다.
+const RESERVED_KEY = "escape";
+
+// 저장된 값 중 Esc로 배정된 게 있으면 비운다 - setKey가 지금은 막고 있지만, 이
+// 제한이 생기기 전에 이미 localStorage에 저장돼 있었을 수 있으므로 불러올 때도
+// 한 번 걸러준다.
+function sanitize(bindings: Record<KeyAction, string>): Record<KeyAction, string> {
+  const result = { ...bindings };
+  for (const action of Object.keys(result) as KeyAction[]) {
+    if (result[action] && normalize(result[action]) === RESERVED_KEY) {
+      result[action] = "";
+    }
+  }
+  return result;
+}
+
 function loadBindings(): Record<KeyAction, string> {
   if (typeof localStorage === "undefined") return { ...DEFAULT_BINDINGS };
   try {
@@ -55,7 +82,7 @@ function loadBindings(): Record<KeyAction, string> {
     if (!raw) return { ...DEFAULT_BINDINGS };
     const parsed = JSON.parse(raw) as Partial<Record<KeyAction, string>>;
     // 저장된 값에 없는 액션(예: 이후 새 액션 추가)은 기본값으로 채움
-    return { ...DEFAULT_BINDINGS, ...parsed };
+    return sanitize({ ...DEFAULT_BINDINGS, ...parsed });
   } catch {
     return { ...DEFAULT_BINDINGS };
   }
@@ -77,9 +104,10 @@ function createKeybindingsStore() {
       return bindings[action];
     },
     // action에 새 key를 등록. 다른 액션이 이미 같은 키를 쓰고 있었다면(중복 방지)
-    // 그 액션의 키는 비워짐.
+    // 그 액션의 키는 비워짐. Esc는 예약된 키라 무시(위 RESERVED_KEY 참고).
     setKey(action: KeyAction, key: string) {
       const norm = normalize(key);
+      if (norm === RESERVED_KEY) return;
       const next = { ...bindings };
       for (const other of Object.keys(next) as KeyAction[]) {
         if (other !== action && next[other] && normalize(next[other]) === norm) {

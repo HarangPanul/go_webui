@@ -33,7 +33,11 @@
   <TopBar {onOpenSettings} />
 
   <div class="game-body">
-    <div class="board-area" onclick={handleBoardAreaClick}>
+    <!-- role="presentation": 빈 여백 클릭은 마우스/터치 전용 편의 제스처일 뿐 -
+    같은 동작(임시 선택 취소)은 Backspace 전역 단축키(keybindings.svelte.ts의
+    cancelPendingMove)로 키보드에서도 이미 가능하므로, 이 요소 자체가 키보드로
+    조작 가능한 상호작용 요소일 필요는 없음을 명시한다. -->
+    <div class="board-area" onclick={handleBoardAreaClick} role="presentation">
       <GoBoard />
       <WinrateGraph />
     </div>

@@ -21,8 +21,11 @@ pub async fn connect_ssh(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn disconnect_ssh(state: State<'_, AppState>) -> Result<(), AppError> {
-    ConnectionService::new(&state).disconnect().await
+pub async fn disconnect_ssh(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<(), AppError> {
+    ConnectionService::new(&state).disconnect(profile_id).await
 }
 
 /// 데스크탑에서 `~/.ssh`에 있는 key들을 감지해 프로필 폼에서 고를 수 있는 목록으로

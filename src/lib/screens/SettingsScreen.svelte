@@ -10,10 +10,13 @@
   import GtpConsole from "../components/settings/GtpConsole.svelte";
   import KeybindingsForm from "../components/settings/KeybindingsForm.svelte";
   import KomiForm from "../components/settings/KomiForm.svelte";
+  import MaxVisitsForm from "../components/settings/MaxVisitsForm.svelte";
   import InstantMoveForm from "../components/settings/InstantMoveForm.svelte";
+  import PendingCrosshairForm from "../components/settings/PendingCrosshairForm.svelte";
   import LanguageForm from "../components/settings/LanguageForm.svelte";
   import CollapsibleSection from "../components/settings/CollapsibleSection.svelte";
   import { serverProfilesStore } from "../stores/serverProfiles.svelte";
+  import { platformStore } from "../stores/platform.svelte";
   import { handleRovingArrowKeys } from "../utils/rovingFocus";
 
   let { onClose }: { onClose: () => void } = $props();
@@ -64,7 +67,15 @@
 
   <CollapsibleSection title={t("settings.gameSettings")}>
     <KomiForm />
+    <!-- max_visits는 로컬 온디바이스 엔진(tauri-plugin-katago-local, Android 전용)의
+         GTP 확장 명령이라 그 기능이 없는 플랫폼에 실효 없는 컨트롤을 보여주지 않게
+         gating한다 - ServerProfileForm의 "Local" 프로필 선택지와 같은 기준
+         (platformStore.supportsLocalEngine). -->
+    {#if platformStore.supportsLocalEngine}
+      <MaxVisitsForm />
+    {/if}
     <InstantMoveForm />
+    <PendingCrosshairForm />
   </CollapsibleSection>
 
   <CollapsibleSection title={t("settings.language")}>

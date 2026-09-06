@@ -1,0 +1,9 @@
+# 이 플러그인은 지금 webview(JS)가 아니라 Rust 백엔드(향후 AndroidLocalTransport)에서만
+# 직접 호출할 계획이라 capabilities에 등록해 webview에 노출할 일은 없지만, tauri-plugin
+# 빌드 스크립트가 permissions 디렉터리 자체를 요구하므로(Builder::try_build) 명령별
+# 기본 permission set을 관례대로 정의해둔다.
+"$schema" = "./schemas/schema.json"
+
+[default]
+description = "ping/gtp_line 명령 기본 허용"
+permissions = ["allow-ping", "allow-gtp-line"]

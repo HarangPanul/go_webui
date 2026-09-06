@@ -1,0 +1,3 @@
+[submodule "src-tauri/plugins/android-engine/katago"]
+	path = src-tauri/plugins/android-engine/katago
+	url = https://github.com/lightvector/KataGo.git

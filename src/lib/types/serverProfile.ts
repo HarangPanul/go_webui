@@ -1,6 +1,12 @@
+// "ssh": 원격 서버의 `katago gtp`를 SSH로 씀 (host/port/username/privateKey/
+// engineCommand 사용). "local": 이 기기의 온디바이스 엔진(Android 전용,
+// tauri-plugin-katago-local)을 씀 - 그 경우 나머지 필드는 전부 무시됨.
+export type ProfileKind = "ssh" | "local";
+
 export interface ServerProfile {
   id: string;
   name: string;
+  kind: ProfileKind;
   host: string;
   port: number;
   username: string;
@@ -9,10 +15,13 @@ export interface ServerProfile {
   hasPassphrase: boolean;
 }
 
-// 프로필 등록/수정 폼 입력값. id가 없으면 신규 생성, 있으면 기존 프로필을 덮어씀
+// 프로필 등록/수정 폼 입력값. id가 없으면 신규 생성, 있으면 기존 프로필을 덮어씀.
+// kind가 "local"이면 host/port/username/privateKey/engineCommand는 백엔드가
+// 무시하고 빈 값으로 저장하므로(ssh::keystore::save 참고) 아무 값이나 넘겨도 무방.
 export interface NewServerProfile {
   id?: string;
   name: string;
+  kind: ProfileKind;
   host: string;
   port: number;
   username: string;

@@ -4,22 +4,50 @@
   import { t } from "../../i18n";
   import { gameTreeStore } from "../../stores/gameTree.svelte";
   import { pendingMoveStore } from "../../stores/pendingMove.svelte";
-  import { engineColorsStore } from "../../stores/engineColors.svelte";
+  import { engineAssignmentStore } from "../../stores/engineAssignment.svelte";
+  import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import { gtpStore } from "../../stores/gtp.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
+  import { holdToRepeat } from "../../utils/holdToRepeat";
   import Button from "../ui/Button.svelte";
+  import Select from "../ui/Select.svelte";
   import stoneBlackUrl from "../../../assets/stone-black.png";
   import stoneWhiteUrl from "../../../assets/stone-white.png";
 
   const stoneImages = { black: stoneBlackUrl, white: stoneWhiteUrl };
 
-  // 엔진이 둘 색은 흑/백 버튼을 각각 독립적으로 켜고 끔 - 둘 다 켜면 엔진이 자기
-  // 자신과 대국하듯 양쪽을 계속 두고, 둘 다 끄면 자동 착수 없이 사람이 양쪽을 다 둠.
-  // 실제 자동 착수(genmove) 로직은 confirmMove() 이후 백엔드
-  // (commands::game::confirm_move)가 처리하고, 여기서는 그 설정값만 토글/전송한다.
-  function toggleEngineColor(color: "black" | "white") {
-    engineColorsStore.setEngineColor(color, !engineColorsStore.engineColors[color]);
+  // 뒤로/앞으로/마지막 수 제거 버튼을 꾹 누르면 0.5초 뒤부터 빠르게 반복 실행됨
+  // (holdToRepeat.ts 참고) - 컴포넌트 최상단에서 한 번만 만들어 재사용해야 반복 도중
+  // 리렌더가 일어나도 내부 타이머 상태가 끊기지 않는다.
+  const backHold = holdToRepeat(
+    () => gameTreeStore.goBack(),
+    () => gameTreeStore.canGoBack,
+  );
+  const forwardHold = holdToRepeat(
+    () => gameTreeStore.goForward(),
+    () => gameTreeStore.canGoForward,
+  );
+  const removeLastMoveHold = holdToRepeat(
+    () => gameTreeStore.removeLastMove(),
+    () => gameTreeStore.canGoBack,
+  );
+
+  // 흑/백에 배정할 수 있는 후보는 "지금 연결되어 있는 프로필"뿐 - 연결 안 된
+  // 프로필을 배정해봐야 실제로 둘 세션이 없어 아무 동작도 하지 않는다. 같은 프로필을
+  // 흑/백 둘 다에 배정하면 엔진이 자기 자신과 대국하듯 계속 두고, 둘 다 배정하지
+  // 않으면(드롭다운을 "사람"으로 두면) 자동 착수 없이 사람이 양쪽을 다 둠. 실제
+  // 자동 착수(genmove) 로직은 confirmMove() 이후 백엔드(commands::game::confirm_move)가
+  // 처리하고, 여기서는 그 배정값만 바꿔 전송한다.
+  const connectedProfiles = $derived(
+    serverProfilesStore.profiles.filter((p) =>
+      connectionStore.connectedProfileIds.includes(p.id),
+    ),
+  );
+
+  function handleAssignmentChange(color: "black" | "white", event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    engineAssignmentStore.setAssignment(color, value === "" ? null : value);
   }
 
   // Analysis(엔진 분석 미리 받아오기) 버튼: 켜지면 "start_kata_analyze" 전용 커맨드로
@@ -60,12 +88,12 @@
   const streamWanted = $derived(analysisStore.showAnalysis || analysisStore.showOwnership);
 
   function toggleAnalysis() {
-    if (connectionStore.status !== "connected") return;
+    if (connectionStore.connectedProfileIds.length === 0) return;
     analysisStore.toggleAnalysis();
   }
 
   function toggleOwnership() {
-    if (connectionStore.status !== "connected") return;
+    if (connectionStore.connectedProfileIds.length === 0) return;
     analysisStore.toggleOwnership();
   }
 
@@ -91,16 +119,16 @@
       // 참고), 여기서 reset()을 부르면 WinrateGraph가 그 즉시 5:5로 되돌아가버린다.
       // "분석을 멈춤"은 "지금까지 알아낸 결과를 지움"이 아니라 "더 이상 새로 갱신하지
       // 않음"이어야 하므로 캐시는 그대로 두고 갱신만 멈춘다.
-      gtpStore.sendSilent("name").catch(() => {});
+      gtpStore.stopKataAnalyze().catch(() => {});
     }
   });
 
-  // 연결이 끊기면 더 이상 분석을 이어갈 수 없으므로 토글 표시도 꺼두고, 남아있던
-  // 결과도 비워 WinrateGraph/AnalysisOverlay/OwnershipOverlay가 끊긴 연결의 옛 결과를
-  // 계속 보여주지 않게 한다(analysisStore.reset()이 showAnalysis/showOwnership을
-  // 모두 함께 꺼줌).
+  // 연결이 하나도 안 남으면 더 이상 분석을 이어갈 수 없으므로 토글 표시도 꺼두고,
+  // 남아있던 결과도 비워 WinrateGraph/AnalysisOverlay/OwnershipOverlay가 끊긴 연결의
+  // 옛 결과를 계속 보여주지 않게 한다(analysisStore.reset()이 showAnalysis/
+  // showOwnership을 모두 함께 꺼줌).
   $effect(() => {
-    if (connectionStore.status !== "connected") {
+    if (connectionStore.connectedProfileIds.length === 0) {
       analysisStore.reset();
     }
   });
@@ -116,27 +144,37 @@
   >
     <img src={stoneImages[gameTreeStore.currentTurn]} alt={gameTreeStore.currentTurn} />
   </Button>
-  <Button
-    active={engineColorsStore.engineColors.black}
-    title={t("game.engineColor.black")}
-    aria-pressed={engineColorsStore.engineColors.black}
-    onclick={() => toggleEngineColor("black")}
-  >
-    {t("game.engineColor.black")}
-  </Button>
-  <Button
-    active={engineColorsStore.engineColors.white}
-    title={t("game.engineColor.white")}
-    aria-pressed={engineColorsStore.engineColors.white}
-    onclick={() => toggleEngineColor("white")}
-  >
-    {t("game.engineColor.white")}
-  </Button>
+  <!-- 흑/백에 배정할 엔진을 고르는 드롭다운. 지금 연결된 프로필만 후보로 뜨고,
+  "사람"을 고르면 그 색은 자동 착수 없이 사람이 둠(engineAssignment.svelte.ts 참고). -->
+  <label class="engine-assign">
+    <span>{t("game.engineColor.black")}</span>
+    <Select
+      value={engineAssignmentStore.assignment.black ?? ""}
+      onchange={(e) => handleAssignmentChange("black", e)}
+    >
+      <option value="">{t("game.engineColor.human")}</option>
+      {#each connectedProfiles as profile (profile.id)}
+        <option value={profile.id}>{profile.name || profile.host}</option>
+      {/each}
+    </Select>
+  </label>
+  <label class="engine-assign">
+    <span>{t("game.engineColor.white")}</span>
+    <Select
+      value={engineAssignmentStore.assignment.white ?? ""}
+      onchange={(e) => handleAssignmentChange("white", e)}
+    >
+      <option value="">{t("game.engineColor.human")}</option>
+      {#each connectedProfiles as profile (profile.id)}
+        <option value={profile.id}>{profile.name || profile.host}</option>
+      {/each}
+    </Select>
+  </label>
   <Button
     active={analysisStore.showAnalysis}
     title={t("game.analysis")}
     aria-pressed={analysisStore.showAnalysis}
-    disabled={connectionStore.status !== "connected"}
+    disabled={connectionStore.connectedProfileIds.length === 0}
     onclick={toggleAnalysis}
   >
     {t("game.analysis")}
@@ -148,7 +186,7 @@
     active={analysisStore.showOwnership}
     title={t("game.ownership")}
     aria-pressed={analysisStore.showOwnership}
-    disabled={connectionStore.status !== "connected"}
+    disabled={connectionStore.connectedProfileIds.length === 0}
     onclick={toggleOwnership}
   >
     {t("game.ownership")}
@@ -167,6 +205,7 @@
     aria-label={t("game.back")}
     disabled={!gameTreeStore.canGoBack}
     onclick={() => gameTreeStore.goBack()}
+    {...backHold}
   >
     ←
   </Button>
@@ -175,6 +214,7 @@
     aria-label={t("game.goForward")}
     disabled={!gameTreeStore.canGoForward}
     onclick={() => gameTreeStore.goForward()}
+    {...forwardHold}
   >
     →
   </Button>
@@ -193,6 +233,7 @@
     variant="danger"
     disabled={!gameTreeStore.canGoBack}
     onclick={() => gameTreeStore.removeLastMove()}
+    {...removeLastMoveHold}
   >
     {t("game.removeLastMove")}
   </Button>
@@ -223,5 +264,20 @@
     height: 100%;
     object-fit: contain;
     pointer-events: none;
+  }
+
+  /* 흑/백 엔진 배정 드롭다운 - 다른 버튼들과 같은 flex 아이템으로 나란히 줄바꿈되되,
+     레이블+select를 세로로 쌓아 라벨이 잘리지 않게 함. */
+  .engine-assign {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    min-width: 96px;
+    font-size: 0.85rem;
+  }
+
+  .engine-assign :global(.ui-input) {
+    width: 100%;
   }
 </style>

@@ -27,10 +27,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::ssh::load_local_ssh_key,
             commands::gtp::send_gtp_command,
             commands::gtp::start_kata_analyze,
-            commands::gtp::set_engine_color,
-            commands::gtp::get_engine_colors,
+            commands::gtp::stop_kata_analyze,
+            commands::gtp::set_engine_assignment,
+            commands::gtp::get_engine_assignment,
             commands::gtp::get_komi,
             commands::gtp::set_komi,
+            commands::local_engine::get_max_visits,
+            commands::local_engine::set_max_visits,
             commands::profile::list_profiles,
             commands::profile::save_profile,
             commands::profile::delete_profile,
@@ -42,6 +45,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::game::go_forward,
             commands::game::remove_last_move,
             commands::game::toggle_turn,
+            commands::platform::supports_local_engine,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         // BoardSnapshot.size/nodeId/ancestorChain, MoveInfo.x/y 등이 Rust에서는
@@ -62,7 +66,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 pub fn run() {
     let specta_builder = specta_builder();
 
-    #[cfg(debug_assertions)]
+    // "../src/lib/generated"는 소스 트리 기준 상대 경로라 데스크톱 dev 빌드(cwd가
+    // src-tauri/)에서만 의미가 있다 - 모바일 debug 빌드는 debug_assertions는 true지만
+    // 그런 소스 트리 자체가 기기에 없어(읽기 전용 APK 안에서 실행) 이 경로에 쓰려고
+    // 하면 그 자리에서 panic해 앱이 아예 뜨지 못한다.
+    #[cfg(all(debug_assertions, desktop))]
     specta_builder
         .export(
             specta_typescript::Typescript::default(),
@@ -71,6 +79,7 @@ pub fn run() {
         .expect("failed to export typescript bindings");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_katago_local::init())
         .manage(AppState::default())
         .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())

@@ -22,8 +22,15 @@
   // 50:50으로 표시한다.
   import { analysisStore } from "../../stores/analysis.svelte";
   import { gameTreeStore } from "../../stores/gameTree.svelte";
+  import { gameResultStore } from "../../stores/gameResult.svelte";
 
   const blackWinrate = $derived.by(() => {
+    // 기권으로 끝난 노드면 분석 결과(kata-analyze)가 왔는지와 무관하게 이긴 색 쪽으로
+    // 막대를 완전히 채운다 - 애초에 이 시점에는 더 둘 수가 없으므로 승률이 아니라
+    // 확정된 결과를 보여줘야 한다.
+    if (gameResultStore.resignedColor === "black") return 0;
+    if (gameResultStore.resignedColor === "white") return 1;
+
     for (const nodeId of gameTreeStore.ancestorChain) {
       const cached = analysisStore.forNode(nodeId);
       const top = cached?.result.candidates[0];
@@ -65,6 +72,17 @@
       ? `+${currentTurnScoreLead.toFixed(1)}`
       : currentTurnScoreLead.toFixed(1),
   );
+
+  // 엔진이 기권했으면(gameResultStore) 집 차이 숫자 대신 기전 표기 관례대로
+  // "B+R"/"W+R"(기권한 색의 반대가 승리)을 보여준다 - 기권한 색 쪽이 진 것이므로
+  // 이긴 색의 이니셜 + R.
+  const resignLabel = $derived(
+    gameResultStore.resignedColor === "black"
+      ? "W+R"
+      : gameResultStore.resignedColor === "white"
+        ? "B+R"
+        : null,
+  );
 </script>
 
 <div class="winrate-graph">
@@ -75,7 +93,7 @@
     <div class="segment white" style="flex-basis: {whitePercent}%"></div>
     <div class="segment black" style="flex-basis: {blackPercent}%"></div>
   </div>
-  <span class="winrate-label">{scoreLeadLabel}</span>
+  <span class="winrate-label">{resignLabel ?? scoreLeadLabel}</span>
 </div>
 
 <style>

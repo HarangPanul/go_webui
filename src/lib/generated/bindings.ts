@@ -5,7 +5,7 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	connectSsh: (profileId: string) => __TAURI_INVOKE<null>("connect_ssh", { profileId }),
-	disconnectSsh: () => __TAURI_INVOKE<null>("disconnect_ssh"),
+	disconnectSsh: (profileId: string) => __TAURI_INVOKE<null>("disconnect_ssh", { profileId }),
 	/**
 	 *  데스크탑에서 `~/.ssh`에 있는 key들을 감지해 프로필 폼에서 고를 수 있는 목록으로
 	 *  돌려준다. 모바일에서는 항상 에러 - 프론트는 이걸 "이 플랫폼은 미지원"으로 받아
@@ -14,7 +14,7 @@ export const commands = {
 	listLocalSshKeys: () => __TAURI_INVOKE<LocalSshKeyInfo[]>("list_local_ssh_keys"),
 	/**  `list_local_ssh_keys`가 돌려준 경로 중 하나를 골랐을 때 실제 key 원문을 읽어온다. */
 	loadLocalSshKey: (path: string) => __TAURI_INVOKE<string>("load_local_ssh_key", { path }),
-	sendGtpCommand: (command: string) => __TAURI_INVOKE<string>("send_gtp_command", { command }),
+	sendGtpCommand: (profileId: string, command: string) => __TAURI_INVOKE<string>("send_gtp_command", { profileId, command }),
 	/**
 	 *  kata-analyze를 (재)시작한다. 일반 `send_gtp_command`로도 문자열상 똑같이 보낼 수
 	 *  있지만, 이 전용 커맨드를 통해야만 "지금 이 시점에 게임 트리 어느 노드/어느 색
@@ -26,26 +26,43 @@ export const commands = {
 	 */
 	startKataAnalyze: (intervalCentiseconds: number) => __TAURI_INVOKE<string>("start_kata_analyze", { intervalCentiseconds }),
 	/**
-	 *  메인 화면에서 "KataGo가 해당 색을 자동으로 둘지"를 색상별로 독립적으로 켜고 끈다.
-	 *  흑/백을 둘 다 켜면 KataGo가 자기 자신과 대국하듯 양쪽을 모두 계속 두고, 둘 다
-	 *  끄면 자동 착수 없이 기존처럼 사람이 양쪽을 다 둔다.
+	 *  GameControls.svelte가 Analysis/Ownership을 둘 다 끌 때 진행 중이던 kata-analyze
+	 *  스트림을 멈추기 위해 부르는 커맨드. kata-analyze는 "다른 입력"이 들어와야 멈추는
+	 *  스트리밍 명령이라 아무 명령이나 하나 보내면 되는데, 그 "아무 명령"을 어느
+	 *  세션으로 보내야 할지(=지금 분석 중인 세션이 어디인지)는 프런트가 알 수 없으므로
+	 *  (start_kata_analyze와 똑같은 방식으로 세션을 다시 골라) 여기서 직접 계산해 보낸다.
+	 *  이미 스트림이 멈춰 있거나 연결이 없어도 조용히 무시(best-effort).
+	 */
+	stopKataAnalyze: () => __TAURI_INVOKE<null>("stop_kata_analyze"),
+	/**
+	 *  메인 화면에서 "흑/백을 각각 어느 연결된 프로필이 자동으로 둘지"를 색상별로
+	 *  독립적으로 정한다(`profile_id`가 `None`이면 그 색은 사람이 둠). 흑/백에 같은
+	 *  프로필을 배정하면 KataGo가 자기 자신과 대국하듯 양쪽을 모두 계속 두고, 둘 다
+	 *  `None`이면 자동 착수 없이 기존처럼 사람이 양쪽을 다 둔다.
 	 * 
 	 *  사람의 착수가 이어질 때는 `commands::game::confirm_move`가 매번 자동 응수 여부를
-	 *  확인하지만, 이 토글 자체를 켜는 시점(예: 흑/백을 막 둘 다 켰을 때)에는 그 뒤로
+	 *  확인하지만, 이 배정 자체를 바꾸는 시점(예: 막 프로필을 배정했을 때)에는 그 뒤로
 	 *  사람이 아예 착수를 안 할 수도 있으므로, 여기서도 바로 한 번 확인해 지금 당장
 	 *  엔진 차례면 즉시 시작한다. GTP 콘솔로 보내는 수동 명령은 이 설정과 무관하게 항상
 	 *  그대로 동작한다.
 	 */
-	setEngineColor: (color: string, enabled: boolean) => __TAURI_INVOKE<null>("set_engine_color", { color, enabled }),
-	getEngineColors: () => __TAURI_INVOKE<EngineColors>("get_engine_colors"),
+	setEngineAssignment: (color: string, profileId: string | null) => __TAURI_INVOKE<null>("set_engine_assignment", { color, profileId }),
+	getEngineAssignment: () => __TAURI_INVOKE<EngineAssignment>("get_engine_assignment"),
 	getKomi: () => __TAURI_INVOKE<number | null>("get_komi"),
 	/**
 	 *  Settings에서 덤을 바꿀 때 호출. 값을 저장해두는 것과 별개로, 지금 연결된 엔진이
-	 *  있으면 바로 `komi <값>`을 보내 즉시 반영한다(안 그러면 다음 접속 때까지 옛 값으로
-	 *  계산됨). 연결이 없으면 저장만 해두고, connect_ssh가 다음 연결 시 이 값을 그대로
-	 *  보낸다.
+	 *  있으면(여러 개 동시에 연결되어 있을 수 있으므로 전부) 바로 `komi <값>`을 보내
+	 *  즉시 반영한다(안 그러면 다음 접속 때까지 옛 값으로 계산됨). 연결이 없으면 저장만
+	 *  해두고, connect_ssh가 다음 연결 시 이 값을 그대로 보낸다.
 	 */
 	setKomi: (komi: number | null) => __TAURI_INVOKE<null>("set_komi", { komi }),
+	getMaxVisits: () => __TAURI_INVOKE<number>("get_max_visits"),
+	/**
+	 *  set_komi(commands/gtp.rs)와 완전히 같은 패턴 - 저장과 동시에, 지금 연결된 세션이
+	 *  있으면(여러 개일 수 있음) 바로 반영한다. 새로 연결되는 세션은
+	 *  AndroidLocalTransport::extra_resync_commands가 알아서 이 값을 읽어 보낸다.
+	 */
+	setMaxVisits: (maxVisits: number) => __TAURI_INVOKE<null>("set_max_visits", { maxVisits }),
 	listProfiles: () => __TAURI_INVOKE<ServerProfileInfo[]>("list_profiles"),
 	saveProfile: (input: SaveProfileInput) => __TAURI_INVOKE<ServerProfileInfo>("save_profile", { input }),
 	deleteProfile: (id: string) => __TAURI_INVOKE<null>("delete_profile", { id }),
@@ -57,6 +74,13 @@ export const commands = {
 	goForward: () => __TAURI_INVOKE<BoardSnapshot>("go_forward"),
 	removeLastMove: () => __TAURI_INVOKE<BoardSnapshot>("remove_last_move"),
 	toggleTurn: () => __TAURI_INVOKE<BoardSnapshot>("toggle_turn"),
+	/**
+	 *  이 빌드에서 "Local"(이 기기의 온디바이스 KataGo, tauri-plugin-katago-local) 프로필
+	 *  종류를 실제로 쓸 수 있는지. Android가 아니면 항상 false - ServerProfileForm이 이
+	 *  값에 따라 SSH/Local 선택 UI 자체를 보여줄지 말지 정한다(Local을 골라도 연결
+	 *  시점에야 실패하는 것보다, 애초에 고를 수 없게 하는 편이 명확함).
+	 */
+	supportsLocalEngine: () => __TAURI_INVOKE<boolean>("supports_local_engine"),
 };
 
 /* Types */
@@ -93,13 +117,14 @@ export type Captures = {
 export type Color = "black" | "white";
 
 /**
- *  메인 화면에서 사용자가 지정한 "KataGo가 자동으로 둘 색". 흑/백이 서로 독립적인
- *  on/off 스위치라, 둘 다 켜면 KataGo가 자기 자신과 대국(self-play)하듯 양쪽을 모두
- *  계속 두고, 둘 다 끄면 자동 착수 없이 사람이 양쪽을 다 둔다(기존 동작과 동일).
+ *  메인 화면에서 사용자가 지정한 "흑/백을 각각 어느 프로필(서버)이 자동으로 둘지".
+ *  값은 서버 프로필의 id - 그 프로필이 실제로 연결되어 있어야 동작하고(연결 안 됐거나
+ *  연결이 끊기면 그 색은 다시 사람이 둠), 흑/백에 같은 프로필을 배정해도 세션은
+ *  state.sessions에 하나만 존재하므로 자기 자신과 대국하듯 동작한다(기존과 동일).
  */
-export type EngineColors = {
-	black: boolean,
-	white: boolean,
+export type EngineAssignment = {
+	black: string | null,
+	white: string | null,
 };
 
 /**
@@ -156,16 +181,28 @@ export type Point = {
 };
 
 /**
+ *  이 프로필이 원격 SSH 서버의 `katago gtp`를 쓰는지, 이 기기의 온디바이스 엔진
+ *  (tauri-plugin-katago-local, Android 전용)을 쓰는지. `Local`이면 host/port/username/
+ *  privateKey/engineCommand는 전부 의미가 없고 keystore::save가 빈 값으로 저장한다 -
+ *  실제로 뭘 쓸지는 gtp::transport::GtpTransport 구현체 선택(services::connection_service)
+ *  이 이 값만 보고 결정한다.
+ */
+export type ProfileKind = "ssh" | "local";
+
+/**
  *  `save_profile` 커맨드 입력값. `id`가 `None`이면 신규 생성(uuid v4 발급),
- *  `Some`이면 기존 프로필을 덮어씀(upsert).
+ *  `Some`이면 기존 프로필을 덮어씀(upsert). kind가 `Local`이면 host/port/username/
+ *  privateKey/engineCommand는 프론트가 뭘 보내든 keystore::save가 무시하고 빈 값으로
+ *  저장한다 - 그 필드들은 SSH 전용이라 폼에서도 애초에 감춰짐.
  */
 export type SaveProfileInput = {
 	id: string | null,
 	name: string,
-	host: string,
-	port: number,
-	username: string,
-	privateKey: string,
+	kind?: ProfileKind,
+	host?: string,
+	port?: number,
+	username?: string,
+	privateKey?: string,
 	engineCommand?: string,
 };
 
@@ -176,6 +213,7 @@ export type SaveProfileInput = {
 export type ServerProfileInfo = {
 	id: string,
 	name: string,
+	kind: ProfileKind,
 	host: string,
 	port: number,
 	username: string,
@@ -184,6 +222,7 @@ export type ServerProfileInfo = {
 };
 
 export type StatusPayload = {
+	profileId: string,
 	status: string,
 	message: string | null,
 };

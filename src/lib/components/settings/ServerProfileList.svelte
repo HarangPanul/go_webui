@@ -1,5 +1,8 @@
 <script lang="ts">
-  // 등록된 서버 프로필(host/port/username/key) 목록 및 연결/전환 UI
+  // 등록된 서버 프로필(host/port/username/key) 목록 및 연결/전환 UI.
+  // 여러 프로필을 동시에 연결해둘 수 있으므로 각 항목이 자기 자신의 연결 상태/버튼을
+  // 독립적으로 갖는다 - 흑/백 중 뭘 둘지는 여기서 정하지 않고(메인 화면 GameControls
+  // 참고) "연결되어 있는지"만 다룬다.
   import { t } from "../../i18n";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
@@ -16,48 +19,68 @@
     error: "status.error",
   } as const;
 
-  let connectingId = $state<string | null>(null);
+  // 연결 요청이 오가는 동안(SSH 핸드셰이크 등) 같은 프로필의 Connect 버튼을 다시
+  // 누르면 아직 sessions 맵에 안 잡힌 상태라 중복 연결 방지 로직(connection_service::
+  // connect의 is_connected 체크)을 통과해버려 SSH 연결이 두 번 열릴 수 있다 - 그래서
+  // 요청이 끝날 때까지 프로필별로 버튼을 비활성화해둔다.
+  let connectingIds = $state<Set<string>>(new Set());
 
   async function handleConnect(id: string) {
-    connectingId = id;
+    connectingIds = new Set(connectingIds).add(id);
     try {
       await connectionStore.connect(id);
       await serverProfilesStore.setActive(id);
     } catch {
-      // 실패 원인은 connectionStore.lastError로 노출됨
+      // 실패 원인은 connectionStore.errorFor(id)로 노출됨
     } finally {
-      connectingId = null;
+      const next = new Set(connectingIds);
+      next.delete(id);
+      connectingIds = next;
     }
   }
 
-  async function handleDisconnect() {
-    await connectionStore.disconnect();
+  async function handleDisconnect(id: string) {
+    await connectionStore.disconnect(id);
   }
 </script>
 
 <ul class="server-profile-list">
   {#each serverProfilesStore.profiles as profile (profile.id)}
+    {@const status = connectionStore.statusFor(profile.id)}
     <li>
       <Panel class="profile-item">
         <div class="profile-info">
           <span class="profile-name">{profile.name || profile.host}</span>
-          <span class="profile-detail"
-            >{profile.username}@{profile.host}:{profile.port}</span
-          >
+          {#if profile.kind === "local"}
+            <span class="profile-detail">{t("settings.profileKindLocal")}</span>
+          {:else}
+            <span class="profile-detail"
+              >{profile.username}@{profile.host}:{profile.port}</span
+            >
+          {/if}
           {#if profile.hasPassphrase}
             <span class="passphrase-warning">{t("settings.passphraseWarning")}</span>
           {/if}
+          {#if status !== "disconnected"}
+            <span class="connection-status status-{status}">{t(statusKey[status])}</span>
+          {/if}
+          {#if connectionStore.errorFor(profile.id)}
+            <span class="error">{connectionStore.errorFor(profile.id)}</span>
+          {/if}
         </div>
         <div class="profile-actions">
-          <Button
-            onclick={() => handleConnect(profile.id)}
-            disabled={profile.hasPassphrase || connectingId === profile.id}
-          >
-            {serverProfilesStore.activeProfileId === profile.id &&
-            connectionStore.status === "connected"
-              ? t("settings.connected")
-              : t("settings.connect")}
-          </Button>
+          {#if status === "connected" || status === "connecting" || status === "reconnecting"}
+            <Button onclick={() => handleDisconnect(profile.id)}>
+              {t("settings.disconnect")}
+            </Button>
+          {:else}
+            <Button
+              onclick={() => handleConnect(profile.id)}
+              disabled={profile.hasPassphrase || connectingIds.has(profile.id)}
+            >
+              {t("settings.connect")}
+            </Button>
+          {/if}
           <Button onclick={() => serverProfilesStore.startEdit(profile)}>
             {t("settings.edit")}
           </Button>
@@ -71,18 +94,6 @@
     <li class="empty">{t("settings.noProfiles")}</li>
   {/each}
 </ul>
-
-{#if connectionStore.status !== "disconnected"}
-  <Panel class="connection-status status-{connectionStore.status}">
-    <span>{t(statusKey[connectionStore.status])}</span>
-    <Button onclick={handleDisconnect}>
-      {t("settings.disconnect")}
-    </Button>
-  </Panel>
-  {#if connectionStore.lastError}
-    <p class="error">{connectionStore.lastError}</p>
-  {/if}
-{/if}
 
 <style>
   .server-profile-list {
@@ -124,6 +135,24 @@
     color: var(--color-warning);
   }
 
+  .connection-status {
+    font-size: 0.75rem;
+    opacity: 0.8;
+  }
+
+  .connection-status.status-connected {
+    color: var(--color-primary);
+  }
+
+  .connection-status.status-connecting,
+  .connection-status.status-reconnecting {
+    color: var(--color-warning);
+  }
+
+  .connection-status.status-error {
+    color: var(--color-danger);
+  }
+
   .profile-actions {
     display: flex;
     gap: var(--space-3);
@@ -141,17 +170,9 @@
     font-size: 0.85rem;
   }
 
-  :global(.connection-status) {
-    margin-top: var(--space-4);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-  }
-
   .error {
-    margin: var(--space-2) 0 0;
+    margin: 0;
     color: var(--color-danger);
-    font-size: 0.85rem;
+    font-size: 0.75rem;
   }
 </style>

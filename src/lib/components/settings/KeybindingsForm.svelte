@@ -15,6 +15,7 @@
     { action: "back", labelKey: "game.back" },
     { action: "goForward", labelKey: "game.goForward" },
     { action: "removeLastMove", labelKey: "game.removeLastMove" },
+    { action: "cancelPendingMove", labelKey: "game.cancelPendingMove" },
     { action: "engineConnect", labelKey: "game.engineConnect" },
     { action: "engineWhite", labelKey: "game.engineColor.white" },
     { action: "engineBlack", labelKey: "game.engineColor.black" },

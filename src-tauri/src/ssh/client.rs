@@ -16,6 +16,21 @@ use crate::error::AppError;
 /// 무한정 멈춰있지 않도록 접속 자체에 상한을 둠.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// SSH 프로토콜 레벨 keepalive 주기. 이만큼 서버로부터 아무것도 못 받으면 russh가
+/// 알아서 keepalive 요청을 보내고, keepalive_max(기본 3)번 연속으로 응답이 없으면
+/// 연결을 끊어버린다(client::Config 기본값은 keepalive_interval=None, 즉 이 기능
+/// 자체가 꺼져 있음).
+///
+/// 이게 없으면(고치기 전 상태) 흑/백이 서로 다른 서버에서 자동으로 여러 수를 이어
+/// 두는 동안(request_engine_move_if_needed) 네트워크가 (모바일 환경에서 흔한 유휴
+/// NAT 타임아웃, 기지국 전환 등으로) 아무 신호 없이 조용히 끊겨도 그걸 감지할 방법이
+/// 전혀 없었다 - TCP가 FIN/RST 없이 그냥 죽으면 channel.wait()도, 그 결과를 기다리는
+/// GtpSession::send()의 genmove 응답 대기도 영원히 멈춰버리고(둘 다 자체 타임아웃이
+/// 없음), 대국이 멈춘 이유조차 알 수 없었다(연결 상태는 여전히 "connected"로 보임).
+/// keepalive를 켜두면 이런 "조용한 단절"도 결국 진짜 채널 종료로 이어져 이미 있던
+/// reconnect_loop(gtp/process.rs)이 정상적으로 재연결을 재시도하게 된다.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+
 /// russh client::Handler 구현체. 지금은 인증 배너/채널 이벤트를 별도로 처리할 필요가
 /// 없어 상태 없는 unit struct.
 pub struct ClientHandler;
@@ -55,7 +70,10 @@ impl SshSession {
         let key_pair = russh_keys::decode_secret_key(private_key, None)
             .map_err(|e| AppError::SshAuthFailed(format!("SSH key 디코딩 실패: {e}")))?;
 
-        let config = Arc::new(client::Config::default());
+        let config = Arc::new(client::Config {
+            keepalive_interval: Some(KEEPALIVE_INTERVAL),
+            ..Default::default()
+        });
         let mut handle = tokio::time::timeout(
             CONNECT_TIMEOUT,
             client::connect(config, (host, port), ClientHandler),

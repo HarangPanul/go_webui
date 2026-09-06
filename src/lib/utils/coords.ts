@@ -6,7 +6,9 @@
 // 로컬 좌표계: x는 왼쪽부터 0-based 열 인덱스, y는 "위쪽"부터 0-based 행 인덱스.
 // GTP 좌표계: 열은 A~T(관례상 I 제외) 왼쪽부터, 행은 1이 맨 "아래쪽" 줄, size가
 // 맨 "위쪽" 줄 -> GTP 행 번호 = size - y.
-const COLUMN_LETTERS = "ABCDEFGHJKLMNOPQRST"; // I는 관례상 건너뜀 (19개, 19줄까지 지원)
+// BoardCanvas.svelte의 좌표 표시(가장자리 A/B/.../숫자)도 이 목록을 그대로 씀 -
+// I를 건너뛰는 관례를 이 파일 하나에서만 관리하기 위해 export.
+export const COLUMN_LETTERS = "ABCDEFGHJKLMNOPQRST"; // I는 관례상 건너뜀 (19개, 19줄까지 지원)
 
 /// GTP vertex 문자열을 로컬 좌표로 파싱. 잘못된 형식/범위를 벗어나거나
 /// "pass"/"resign"이면 null (좌표가 없는 수이므로 오버레이에서 건너뜀).

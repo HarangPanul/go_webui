@@ -405,6 +405,27 @@ impl GameTree {
     pub fn size(&self) -> usize {
         self.size
     }
+
+    /// 루트부터 현재 노드까지 이어지는 수순을 순서대로 반환(패스 포함). (재)연결된
+    /// GTP 세션은 katago 프로세스가 통째로 새로 뜬 것이라 내부적으로 항상 빈
+    /// 보드에서 시작하므로, 대국이 이미 진행된 뒤에 세션을 (재)연결하면 이 수순을
+    /// `play`로 그대로 재생해줘야 로컬 트리와 엔진 내부 보드가 맞는다
+    /// (services::engine_sync::resync_session_to_history 참고).
+    pub fn move_history(&self) -> Vec<MoveInfo> {
+        let mut path = Vec::new();
+        let mut idx = self.current;
+        while let Some(node) = self.nodes.get(idx) {
+            if let Some(mv) = node.mv {
+                path.push(mv);
+            }
+            match node.parent {
+                Some(parent) => idx = parent,
+                None => break,
+            }
+        }
+        path.reverse();
+        path
+    }
 }
 
 impl Default for GameTree {
@@ -595,6 +616,40 @@ mod tests {
         assert!(tree.confirm_move(1, 1));
         assert!(tree.confirm_move(2, 2));
         assert_eq!(tree.snapshot().ancestor_chain, vec![3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn move_history_is_root_first_in_play_order() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0)); // B
+        tree.pass_turn(); // W
+        assert!(tree.confirm_move(2, 2)); // B
+        assert_eq!(
+            tree.move_history(),
+            vec![
+                MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false },
+                MoveInfo { x: 0, y: 0, color: Color::White, is_pass: true },
+                MoveInfo { x: 2, y: 2, color: Color::Black, is_pass: false },
+            ]
+        );
+    }
+
+    #[test]
+    fn move_history_after_go_back_excludes_undone_moves() {
+        let mut tree = GameTree::new(5);
+        assert!(tree.confirm_move(0, 0));
+        assert!(tree.confirm_move(1, 1));
+        tree.go_back();
+        assert_eq!(
+            tree.move_history(),
+            vec![MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false }]
+        );
+    }
+
+    #[test]
+    fn move_history_at_root_is_empty() {
+        let tree = GameTree::new(5);
+        assert!(tree.move_history().is_empty());
     }
 
     // ---------- 알려진 규칙 격차(의도적으로 보존, 고치지 않음) ----------

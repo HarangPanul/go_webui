@@ -1,4 +1,8 @@
-// 원격 서버에서 실행 중인 `katago gtp` 프로세스의 SSH 채널 I/O 핸들.
+// GTP 세션: 명령 큐잉/FIFO 매칭/kata-analyze 스트리밍 분리 등 GTP 텍스트 프로토콜
+// 자체의 규칙만 다루고, 그 반대편이 실제로 무엇인지(원격 SSH 채널의 `katago gtp`
+// 프로세스든, 나중에 추가될 다른 트랜스포트든)는 gtp::transport::GtpTransport 뒤로
+// 완전히 숨긴다 - SSH 채널 프레이밍/재연결 정책 같은 세부사항은 gtp::ssh_transport에
+// 있다.
 //
 // - 명령 큐: GTP는 보내는 순서대로 응답이 오는 FIFO 프로토콜이므로, send()마다 oneshot을
 //   대기열 뒤에 push하고 reader task가 응답을 완성할 때마다 대기열 맨 앞을 resolve.
@@ -6,25 +10,25 @@
 //   때까지 누적.
 // - kata-analyze 스트리밍(`info ` 라인)은 일반 응답 큐에 섞이지 않도록 즉시 분리해서
 //   파싱 후 이벤트로 emit.
-// - 무응답/연결 끊김 감지 시 10초 간격으로 재연결 재시도, 명시적 disconnect()는
-//   Notify로 즉시 취소.
+// - 무응답/연결 끊김 감지 시 트랜스포트의 재연결 정책(GtpTransport::reconnect_policy)에
+//   따라 재시도, 명시적 disconnect()는 Notify로 즉시 취소.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, Notify};
 
 use crate::error::AppError;
 use crate::game::Color;
 use crate::gtp::parser;
-use crate::models::server_profile::ServerProfile;
-use crate::ssh::client::{Channel, ChannelMessage, ClientHandler, SshSession};
+use crate::gtp::transport::{GtpTransport, ReconnectPolicy, TransportEvent, TransportHandle};
+use crate::services::engine_sync;
+use crate::state::AppState;
 
 const CONNECTION_STATUS_EVENT: &str = "connection-status";
 const KATA_ANALYZE_EVENT: &str = "kata-analyze";
@@ -48,29 +52,48 @@ pub struct AnalysisContext {
 
 // "connection-status" 이벤트 payload. 커맨드 어디에도 인자/반환값으로 나타나지
 // 않아 lib.rs에서 `.typ::<>()`로 직접 등록해야 bindings.ts에 타입이 노출된다.
+// profile_id는 동시에 여러 프로필이 연결될 수 있어서(여러 서버 동시 연결) 추가됨 -
+// 이게 없으면 프런트가 이 상태 변화가 어느 프로필 얘기인지 구분할 수 없다.
 #[derive(Serialize, Clone, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct StatusPayload {
+    profile_id: String,
     status: &'static str,
     message: Option<String>,
 }
 
-fn emit_status(app: &AppHandle, status: &'static str, message: Option<String>) {
-    let _ = app.emit(CONNECTION_STATUS_EVENT, StatusPayload { status, message });
+fn emit_status(app: &AppHandle, profile_id: &str, status: &'static str, message: Option<String>) {
+    let _ = app.emit(
+        CONNECTION_STATUS_EVENT,
+        StatusPayload {
+            profile_id: profile_id.to_string(),
+            status,
+            message,
+        },
+    );
 }
 
 type PendingQueue = StdMutex<VecDeque<oneshot::Sender<Result<String, AppError>>>>;
 
 struct Inner {
     app: AppHandle,
-    profile: ServerProfile,
+    transport: Arc<dyn GtpTransport>,
     writer: AsyncMutex<Pin<Box<dyn AsyncWrite + Send>>>,
-    // 연결을 살아있게 유지하는 동시에, disconnect() 시 실제로 SSH 세션을 끊기 위해
-    // 필요 (reader task는 channel만 소유하고 handle은 여기서 관리).
-    ssh_handle: AsyncMutex<Option<russh::client::Handle<ClientHandler>>>,
+    // 연결을 살아있게 유지하는 동시에, disconnect() 시 실제로 트랜스포트를 끊기 위해
+    // 필요 (reader task는 line 채널만 소유하고 handle은 여기서 관리).
+    handle: AsyncMutex<Option<Box<dyn TransportHandle>>>,
     pending: PendingQueue,
     reconnect_cancel: Notify,
     stopped: AtomicBool,
     analysis_context: StdMutex<Option<AnalysisContext>>,
+    // 지금 이 세션에 kata-analyze가 "켜져 있어야 하는지"와 그 간격.
+    // start_kata_analyze가 설정하고 stop_kata_analyze가 지운다(analysis_context와
+    // 달리 이건 끄면 반드시 None으로 돌아옴). 재연결 직후 이 값이 Some이면 - 즉
+    // 끊기기 직전까지 분석이 켜져 있었다면 - 새로 뜬 세션에도 즉시 kata-analyze를
+    // 다시 걸어준다(reconnect_loop 참고). 안 그러면 GameControls.svelte가 보드
+    // 위치 변화에만 반응해 재시작하므로, 다음 착수가 생기기 전까지 화면엔 끊기기
+    // 직전의 낡은 분석 결과가 그대로 남는다.
+    analysis_interval: StdMutex<Option<u32>>,
 }
 
 fn fail_all_pending(inner: &Inner, message: &str) {
@@ -85,35 +108,28 @@ pub struct GtpSession {
 }
 
 impl GtpSession {
-    pub async fn connect(app: AppHandle, profile: ServerProfile) -> Result<Self, AppError> {
-        emit_status(&app, "connecting", None);
+    pub async fn connect(app: AppHandle, transport: Arc<dyn GtpTransport>) -> Result<Self, AppError> {
+        emit_status(&app, transport.profile_id(), "connecting", None);
 
-        let ssh = SshSession::connect(
-            &profile.host,
-            profile.port,
-            &profile.username,
-            &profile.private_key,
-            &profile.engine_command,
-        )
-        .await
-        .map_err(|e| {
-            emit_status(&app, "error", Some(e.to_string()));
-            e
-        })?;
+        let opened = transport
+            .open()
+            .await
+            .inspect_err(|e| emit_status(&app, transport.profile_id(), "error", Some(e.to_string())))?;
 
         let inner = Arc::new(Inner {
             app: app.clone(),
-            profile,
-            writer: AsyncMutex::new(ssh.writer),
-            ssh_handle: AsyncMutex::new(Some(ssh.handle)),
+            transport: transport.clone(),
+            writer: AsyncMutex::new(opened.writer),
+            handle: AsyncMutex::new(Some(opened.handle)),
             pending: StdMutex::new(VecDeque::new()),
             reconnect_cancel: Notify::new(),
             stopped: AtomicBool::new(false),
             analysis_context: StdMutex::new(None),
+            analysis_interval: StdMutex::new(None),
         });
 
-        spawn_reader(inner.clone(), ssh.channel);
-        emit_status(&app, "connected", None);
+        spawn_reader(inner.clone(), opened.lines);
+        emit_status(&app, inner.transport.profile_id(), "connected", None);
 
         Ok(GtpSession { inner })
     }
@@ -125,6 +141,32 @@ impl GtpSession {
     /// 위함).
     pub fn set_analysis_context(&self, node_id: usize, for_color: Color) {
         *self.inner.analysis_context.lock().unwrap() = Some(AnalysisContext { node_id, for_color });
+    }
+
+    /// start_kata_analyze가 명령을 보내기 직전에 호출: "지금 이 세션에 이 간격으로
+    /// kata-analyze가 켜져 있어야 한다"를 기록해둔다 - 재연결 시 되살릴 수 있게.
+    pub fn set_analysis_wanted(&self, interval_centiseconds: u32) {
+        *self.inner.analysis_interval.lock().unwrap() = Some(interval_centiseconds);
+    }
+
+    /// stop_kata_analyze가 호출: 더 이상 분석을 원하지 않음을 기록. 이후 재연결돼도
+    /// 자동으로 kata-analyze를 다시 걸지 않는다.
+    pub fn clear_analysis_wanted(&self) {
+        *self.inner.analysis_interval.lock().unwrap() = None;
+    }
+
+    /// 지금 이 세션에 kata-analyze가 켜져 있어야 하는지, 켜져 있어야 한다면 그 간격.
+    /// reconnect_loop가 재연결 직후 분석을 되살릴지 판단하는 데 사용.
+    pub fn analysis_interval(&self) -> Option<u32> {
+        *self.inner.analysis_interval.lock().unwrap()
+    }
+
+    /// engine_sync::resync_session_to_history가 komi 등 표준 시퀀스와 함께 보낼,
+    /// 이 세션의 트랜스포트가 추가로 필요로 하는 명령들. GtpSession 자신은 그 명령이
+    /// 뭘 뜻하는지 모른 채 transport::GtpTransport::extra_resync_commands를 그대로
+    /// 전달만 한다(파일 상단 설명 참고).
+    pub fn extra_resync_commands(&self) -> Vec<String> {
+        self.inner.transport.extra_resync_commands()
     }
 
     /// GTP 명령을 보내고 응답 전체(여러 줄일 수 있음, 빈 줄 이전까지)를 받아온다.
@@ -161,82 +203,44 @@ impl GtpSession {
         self.inner.reconnect_cancel.notify_one();
         fail_all_pending(&self.inner, "연결이 종료되었습니다");
 
-        // 실제로 SSH 세션을 끊어야 원격 katago 프로세스도 정리되고 reader task도
-        // channel EOF/Close를 받아 루프를 빠져나감.
-        let handle = self.inner.ssh_handle.lock().await.take();
+        // 실제 연결을 정리해야 원격 katago 프로세스도(SSH의 경우) 정리되고 reader
+        // task도 라인 채널이 끊기는 것을 보고 루프를 빠져나감.
+        let handle = self.inner.handle.lock().await.take();
         if let Some(handle) = handle {
-            let _ = handle
-                .disconnect(russh::Disconnect::ByApplication, "", "English")
-                .await;
+            handle.close().await;
         }
 
-        emit_status(&self.inner.app, "disconnected", None);
+        emit_status(&self.inner.app, self.inner.transport.profile_id(), "disconnected", None);
     }
 }
 
-/// stderr 진단 버퍼 상한. katago 시작 로그가 길 수 있어(모델 로딩 등) 전부
-/// 붙잡아두지 않고 앞부분만 보관 - 어차피 원인 파악용 요약이면 충분함.
-const STDERR_DIAG_LIMIT: usize = 2000;
-
-fn spawn_reader(inner: Arc<Inner>, mut channel: Channel) {
+fn spawn_reader(inner: Arc<Inner>, mut lines: mpsc::UnboundedReceiver<TransportEvent>) {
     tokio::spawn(async move {
-        let mut line_buffer = String::new();
         let mut response_acc = String::new();
-        // 원격 프로세스의 stderr(ExtendedData)는 GTP 프로토콜과 무관한 로그이므로
-        // stdout 파싱 버퍼(line_buffer)에 섞지 않고 진단용으로만 별도 보관한다.
-        let mut stderr_diag = String::new();
-        let mut exit_status: Option<u32> = None;
+        // recv()가 Closed 이벤트 없이 그냥 None을 반환하는 건 정상 흐름에서는 일어나지
+        // 않아야 하지만(트랜스포트 쪽 pump task가 항상 Closed를 보내고 끝남), 혹시
+        // 그 task가 패닉 등으로 죽는 경우를 대비한 기본값.
+        let mut close_reason = "연결이 끊겼습니다".to_string();
 
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-            match &msg {
-                ChannelMessage::Data { data } => {
-                    line_buffer.push_str(&String::from_utf8_lossy(data));
-                    while let Some(pos) = line_buffer.find('\n') {
-                        let line = line_buffer[..pos].trim_end_matches('\r').to_string();
-                        line_buffer.drain(..=pos);
-                        dispatch_line(&inner, &mut response_acc, &line);
-                    }
+        while let Some(event) = lines.recv().await {
+            match event {
+                TransportEvent::Line(line) => dispatch_line(&inner, &mut response_acc, &line),
+                TransportEvent::Closed { reason } => {
+                    close_reason = reason;
+                    break;
                 }
-                ChannelMessage::ExtendedData { data, .. } => {
-                    if stderr_diag.len() < STDERR_DIAG_LIMIT {
-                        stderr_diag.push_str(&String::from_utf8_lossy(data));
-                    }
-                }
-                ChannelMessage::ExitStatus { exit_status: code } => {
-                    exit_status = Some(*code);
-                }
-                ChannelMessage::Eof | ChannelMessage::Close => break,
-                _ => {}
             }
         }
 
-        let reason = disconnect_reason(exit_status, &stderr_diag);
-        fail_all_pending(&inner, &reason);
+        fail_all_pending(&inner, &close_reason);
 
         if inner.stopped.load(Ordering::SeqCst) {
             return;
         }
 
-        emit_status(&inner.app, "reconnecting", Some(reason));
+        emit_status(&inner.app, inner.transport.profile_id(), "reconnecting", Some(close_reason));
         reconnect_loop(inner).await;
     });
-}
-
-/// 채널이 끊긴 이유를 사람이 읽을 수 있는 문자열로 요약. exit status/stderr가
-/// 있으면(원격 명령 자체가 실패한 경우 - 잘못된 engine_command 등) 그걸 우선
-/// 보여줘야 사용자가 "네트워크 문제로 재연결 중"과 "명령 자체가 잘못됨"을 구분할 수
-/// 있다.
-fn disconnect_reason(exit_status: Option<u32>, stderr_diag: &str) -> String {
-    let trimmed = stderr_diag.trim();
-    match (exit_status, trimmed.is_empty()) {
-        (Some(code), false) => format!("원격 명령이 종료됨 (exit code {code}): {trimmed}"),
-        (Some(code), true) => format!("원격 명령이 종료됨 (exit code {code})"),
-        (None, false) => format!("연결이 끊겼습니다: {trimmed}"),
-        (None, true) => "연결이 끊겼습니다".to_string(),
-    }
 }
 
 /// kata-analyze 결과에 "어느 노드/색 기준인지"를 얹어 프런트엔드로 보내는 이벤트
@@ -291,9 +295,18 @@ fn dispatch_line(inner: &Arc<Inner>, response_acc: &mut String, line: &str) {
 }
 
 async fn reconnect_loop(inner: Arc<Inner>) {
+    let delay = match inner.transport.reconnect_policy() {
+        // 이 트랜스포트는 자동 재연결을 지원하지 않음 - 세션은 끊긴 채로 남고
+        // "reconnecting" 대신 이미 emit된 상태 그대로(위 spawn_reader의 "reconnecting")
+        // 둔다. 지금은 SSH만 있어 이 경로가 실제로 쓰이지 않지만, 재연결 개념이
+        // 다르거나 없는 트랜스포트(예: 로컬 온디바이스 엔진)를 위해 마련해둠.
+        ReconnectPolicy::None => return,
+        ReconnectPolicy::Retry(delay) => delay,
+    };
+
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+            _ = tokio::time::sleep(delay) => {}
             _ = inner.reconnect_cancel.notified() => return,
         }
 
@@ -301,27 +314,40 @@ async fn reconnect_loop(inner: Arc<Inner>) {
             return;
         }
 
-        match SshSession::connect(
-            &inner.profile.host,
-            inner.profile.port,
-            &inner.profile.username,
-            &inner.profile.private_key,
-            &inner.profile.engine_command,
-        )
-        .await
-        {
-            Ok(ssh) => {
-                *inner.writer.lock().await = ssh.writer;
-                *inner.ssh_handle.lock().await = Some(ssh.handle);
-                spawn_reader(inner.clone(), ssh.channel);
-                emit_status(&inner.app, "connected", None);
+        match inner.transport.open().await {
+            Ok(opened) => {
+                *inner.writer.lock().await = opened.writer;
+                *inner.handle.lock().await = Some(opened.handle);
+                spawn_reader(inner.clone(), opened.lines);
+                emit_status(&inner.app, inner.transport.profile_id(), "connected", None);
+
+                // 새로 뜬 katago 프로세스는 내부적으로 텅 빈 보드에서 시작하므로,
+                // 끊기기 전까지 진행됐던 실제 대국 상태(보드 크기/덤/수순 전부)를
+                // 그대로 재생해 맞춰준다 - 안 그러면 이 세션은 (연결 상태만
+                // "connected"로 정상 복구된 것처럼 보일 뿐) 로컬 게임 트리와 완전히
+                // 다른 보드를 기준으로 genmove/kata-analyze를 하게 되어 추천수가
+                // 뜬금없어 보이는 원인이 된다(services::engine_sync 참고).
+                let state = inner.app.state::<AppState>();
+                let session = GtpSession {
+                    inner: inner.clone(),
+                };
+                engine_sync::resync_session_to_history(&state, &session).await;
+
+                // 끊기기 직전까지 이 세션에 kata-analyze가 켜져 있었다면(analysis_
+                // interval) 지금 다시 걸어준다 - 이 뒤에 이어지는 send()는 kata-analyze
+                // 특유의 "다른 입력이 올 때까지 안 끝나는" 스트리밍 명령이라 이 await는
+                // 그 세션의 분석이 실제로 멈출 때까지(다음 genmove 등으로 인터럽트될
+                // 때까지) 안 끝나는 게 정상이다 - reconnect_loop는 이미 독립된
+                // tokio::spawn 태스크라 다른 곳을 막지 않는다.
+                engine_sync::resume_analysis_if_wanted(&state, &session).await;
+
                 return;
             }
             Err(e) => {
                 // 매 시도 실패 이유를 그대로 버리지 않고 다시 emit - 그래야
                 // "reconnecting" 상태에서 멈춰 있을 때 왜 계속 실패하는지(예: engine
                 // 명령 자체가 잘못됨) 사용자가 알 수 있다.
-                emit_status(&inner.app, "reconnecting", Some(e.to_string()));
+                emit_status(&inner.app, inner.transport.profile_id(), "reconnecting", Some(e.to_string()));
                 continue;
             }
         }

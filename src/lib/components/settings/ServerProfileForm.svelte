@@ -1,12 +1,17 @@
 <script lang="ts">
-  // 서버 프로필 등록/수정 폼 (name, host, port, username, engineCommand, key)
+  // 서버 프로필 등록/수정 폼. kind가 "ssh"면 host/port/username/engineCommand/key를,
+  // "local"이면 이 기기의 온디바이스 엔진을 쓴다는 것 외에 입력할 게 없다(그 필드들은
+  // 백엔드가 무시함 - ssh::keystore::save 참고).
   import { t } from "../../i18n";
   import { appErrorMessage } from "../../appError";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
+  import { platformStore } from "../../stores/platform.svelte";
+  import type { ProfileKind } from "../../types/serverProfile";
   import SshKeyInput from "./SshKeyInput.svelte";
   import FormField from "../ui/FormField.svelte";
   import TextInput from "../ui/TextInput.svelte";
   import NumberInput from "../ui/NumberInput.svelte";
+  import Select from "../ui/Select.svelte";
   import Button from "../ui/Button.svelte";
 
   // onDone: 저장 성공 또는 취소로 폼이 "끝났을 때" 호출 - SettingsScreen이 이 폼을
@@ -19,6 +24,7 @@
 
   let editingId = $state<string | null>(null);
   let name = $state("");
+  let kind = $state<ProfileKind>("ssh");
   let host = $state("");
   let port = $state(22);
   let username = $state("");
@@ -35,6 +41,7 @@
     if (!profile) return;
     editingId = profile.id;
     name = profile.name;
+    kind = profile.kind;
     host = profile.host;
     port = profile.port;
     username = profile.username;
@@ -45,6 +52,7 @@
   function resetForm() {
     editingId = null;
     name = "";
+    kind = "ssh";
     host = "";
     port = 22;
     username = "";
@@ -66,6 +74,7 @@
       await serverProfilesStore.save({
         id: editingId ?? undefined,
         name,
+        kind,
         host,
         port,
         username,
@@ -86,24 +95,41 @@
   <FormField label={t("settings.profileName")}>
     <TextInput bind:value={name} required />
   </FormField>
-  <FormField label={t("settings.host")}>
-    <TextInput bind:value={host} required />
-  </FormField>
-  <FormField label={t("settings.port")}>
-    <NumberInput min={1} max={65535} bind:value={port} required />
-  </FormField>
-  <FormField label={t("settings.username")}>
-    <TextInput bind:value={username} required />
-  </FormField>
-  <FormField label={t("settings.engineCommand")}>
-    <TextInput bind:value={engineCommand} />
-  </FormField>
-  <FormField
-    label={t("settings.sshKey")}
-    hint={editingId ? t("settings.sshKeyEditHint") : undefined}
-  >
-    <SshKeyInput bind:value={privateKey} />
-  </FormField>
+
+  <!-- 이 플랫폼에서 Local(온디바이스 엔진)을 아예 쓸 수 없으면(Android가 아니면)
+  선택지 자체를 감춘다 - 골라도 연결 시점에야 실패하는 것보다 애초에 못 고르게 하는
+  편이 명확함(commands::platform::supports_local_engine 참고). -->
+  {#if platformStore.supportsLocalEngine}
+    <FormField label={t("settings.profileKind")}>
+      <Select bind:value={kind}>
+        <option value="ssh">{t("settings.profileKindSsh")}</option>
+        <option value="local">{t("settings.profileKindLocal")}</option>
+      </Select>
+    </FormField>
+  {/if}
+
+  {#if kind === "ssh"}
+    <FormField label={t("settings.host")}>
+      <TextInput bind:value={host} required />
+    </FormField>
+    <FormField label={t("settings.port")}>
+      <NumberInput min={1} max={65535} bind:value={port} required />
+    </FormField>
+    <FormField label={t("settings.username")}>
+      <TextInput bind:value={username} required />
+    </FormField>
+    <FormField label={t("settings.engineCommand")}>
+      <TextInput bind:value={engineCommand} />
+    </FormField>
+    <FormField
+      label={t("settings.sshKey")}
+      hint={editingId ? t("settings.sshKeyEditHint") : undefined}
+    >
+      <SshKeyInput bind:value={privateKey} />
+    </FormField>
+  {:else}
+    <p class="local-engine-hint">{t("settings.profileKindLocalHint")}</p>
+  {/if}
 
   {#if error}
     <p class="error">{error}</p>
@@ -135,5 +161,11 @@
     margin: 0;
     color: var(--color-danger);
     font-size: 0.85rem;
+  }
+
+  .local-engine-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    opacity: 0.8;
   }
 </style>

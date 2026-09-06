@@ -4,6 +4,7 @@
   import GameScreen from "./lib/screens/GameScreen.svelte";
   import SettingsScreen from "./lib/screens/SettingsScreen.svelte";
   import KeyboardShortcuts from "./lib/components/common/KeyboardShortcuts.svelte";
+  import EngineConnectPicker from "./lib/components/common/EngineConnectPicker.svelte";
 
   let activeScreen: "game" | "settings" = $state("game");
 
@@ -25,6 +26,7 @@
 <svelte:window onpopstate={() => (activeScreen = "game")} />
 
 <KeyboardShortcuts {activeScreen} onOpenSettings={openSettings} onCloseSettings={closeSettings} />
+<EngineConnectPicker />
 
 {#if activeScreen === "game"}
   <GameScreen onOpenSettings={openSettings} />

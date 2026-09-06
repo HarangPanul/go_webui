@@ -12,10 +12,12 @@
   // keybindingsStore 기반 단축키를 이 컴포넌트 하나로 모아 시퀀스 버퍼를
   // 일원화해야 그런 문제가 없다.
   import { gameTreeStore } from "../../stores/gameTree.svelte";
-  import { engineColorsStore } from "../../stores/engineColors.svelte";
+  import { pendingMoveStore } from "../../stores/pendingMove.svelte";
+  import { engineAssignmentStore } from "../../stores/engineAssignment.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { serverProfilesStore } from "../../stores/serverProfiles.svelte";
+  import { engineConnectPickerStore } from "../../stores/engineConnectPicker.svelte";
   import { keybindingsStore, ALL_ACTIONS, type KeyAction } from "../../stores/keybindings.svelte";
 
   let { activeScreen, onOpenSettings, onCloseSettings }: {
@@ -24,36 +26,26 @@
     onCloseSettings: () => void;
   } = $props();
 
-  async function toggleEngineConnection() {
-    if (
-      connectionStore.status === "connected" ||
-      connectionStore.status === "connecting" ||
-      connectionStore.status === "reconnecting"
-    ) {
-      await connectionStore.disconnect();
+  // 이미 그 색에 배정되어 있으면 해제(사람이 둠으로), 아니면 "가장 최근에 활성화한
+  // 프로필"을 배정한다 - toggleEngineConnection과 같은 기준으로 대상을 고른다.
+  // 그 프로필이 지금 연결되어 있지 않으면(예: 아직 연결 전) 아무 일도 하지 않는다.
+  function toggleEngineColor(color: "black" | "white") {
+    if (engineAssignmentStore.assignment[color]) {
+      engineAssignmentStore.setAssignment(color, null);
       return;
     }
     const id = serverProfilesStore.activeProfileId ?? serverProfilesStore.profiles[0]?.id;
-    if (!id) return;
-    try {
-      await connectionStore.connect(id);
-      await serverProfilesStore.setActive(id);
-    } catch {
-      // 실패 원인은 connectionStore.lastError로 노출됨(Settings에서 확인 가능)
-    }
-  }
-
-  function toggleEngineColor(color: "black" | "white") {
-    engineColorsStore.setEngineColor(color, !engineColorsStore.engineColors[color]);
+    if (!id || connectionStore.statusFor(id) !== "connected") return;
+    engineAssignmentStore.setAssignment(color, id);
   }
 
   function toggleAnalysis() {
-    if (connectionStore.status !== "connected") return;
+    if (connectionStore.connectedProfileIds.length === 0) return;
     analysisStore.toggleAnalysis();
   }
 
   function toggleOwnership() {
-    if (connectionStore.status !== "connected") return;
+    if (connectionStore.connectedProfileIds.length === 0) return;
     analysisStore.toggleOwnership();
   }
 
@@ -62,8 +54,11 @@
     back: () => gameTreeStore.goBack(),
     goForward: () => gameTreeStore.goForward(),
     removeLastMove: () => gameTreeStore.removeLastMove(),
+    cancelPendingMove: () => pendingMoveStore.cancelPending(),
     changeColor: () => gameTreeStore.toggleTurn(),
-    engineConnect: () => toggleEngineConnection(),
+    // 바로 연결하지 않고 선택창을 띄운다 - 실제 연결 대상 선택은 그 창이 뜬 동안
+    // 아래 handleKeyDown의 위/아래 화살표·Enter 처리가 담당(engineConnectPickerStore 참고).
+    engineConnect: () => engineConnectPickerStore.open(),
     engineWhite: () => toggleEngineColor("white"),
     engineBlack: () => toggleEngineColor("black"),
     analysis: () => toggleAnalysis(),
@@ -99,6 +94,30 @@
   function handleKeyDown(evt: KeyboardEvent) {
     const key = evt.key;
 
+    // 엔진 선택창이 떠 있는 동안은 그 어떤 단축키(설정 화면 Esc 닫기 포함)보다
+    // 이 처리를 최우선으로 가로챈다 - 위/아래로 항목을 고르고 Enter로 확정,
+    // Esc로 취소하는 것 외의 키는(다른 단축키와 겹쳐 오작동하지 않도록) 전부 무시.
+    // BoardCanvas.svelte의 방향키(임시 선택 이동) 리스너도 같은 store를 확인해
+    // 이 창이 떠 있을 땐 스스로 멈춘다(그쪽 주석 참고).
+    if (engineConnectPickerStore.isOpen) {
+      evt.preventDefault();
+      switch (key) {
+        case "ArrowUp":
+          engineConnectPickerStore.moveUp();
+          break;
+        case "ArrowDown":
+          engineConnectPickerStore.moveDown();
+          break;
+        case "Enter":
+          engineConnectPickerStore.confirm();
+          break;
+        case "Escape":
+          engineConnectPickerStore.close();
+          break;
+      }
+      return;
+    }
+
     // Esc로 설정 화면 닫기: GTP 콘솔/SSH 프로필 입력창 등에 포커스가 있어도 항상
     // 동작해야 하므로, 입력창 포커스를 무시하는 아래 필터보다 먼저 처리한다.
     // KeybindingsForm이 "키 변경" 대기 중일 때는 그쪽 capture 단계 리스너가
@@ -116,14 +135,13 @@
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
     if (evt.ctrlKey || evt.altKey || evt.metaKey) return;
 
-    // Esc: 대기 중이던 시퀀스 버퍼를 완전히 비움(게임 화면에서만 - 설정 화면 닫기는
-    // 위에서 이미 처리됨). 버퍼가 비어 있을 때는 여기서 할 일이 없으므로 그대로
-    // 흘려보내 다른 Esc 동작(예: pendingMove 취소)을 방해하지 않는다.
+    // Esc: 대기 중이던 시퀀스 버퍼를 비움(게임 화면에서만 - 설정 화면 닫기는 위에서
+    // 이미 처리됨). Esc는 keybindingsStore가 어떤 액션에도 배정을 막아둔 예약된
+    // 키라(RESERVED_KEY 참고) 그 외의 용도로 쓰일 일이 없으므로, 버퍼가 비어
+    // 있어도 그냥 여기서 끝낸다(아래 dispatch(key)로 넘길 필요가 없음).
     if (key === "Escape") {
-      if (prefixKey) {
-        clearPrefix();
-        evt.preventDefault();
-      }
+      clearPrefix();
+      evt.preventDefault();
       return;
     }
 

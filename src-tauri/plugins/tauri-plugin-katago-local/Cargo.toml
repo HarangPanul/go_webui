@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-katago-local"
+version = "0.1.0"
+edition = "2021"
+links = "tauri-plugin-katago-local"
+description = "Android 온디바이스 KataGo(ExecuTorch) 엔진을 gtp::transport::GtpTransport로 연결하는 Tauri 모바일 플러그인. Android 외 플랫폼에서는 항상 UnsupportedPlatform 에러를 반환하는 스텁."
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::models::server_profile::{SaveProfileInput, ServerProfile};
+use crate::models::server_profile::{ProfileKind, SaveProfileInput, ServerProfile};
 
 const PROFILES_FILE: &str = "profiles.json";
 
@@ -79,6 +79,10 @@ pub fn get(app: &AppHandle, id: &str) -> Result<Option<ServerProfile>, AppError>
 /// 취급한다 (프론트는 보안상 기존 key 원문을 절대 내려받지 않으므로, 수정 폼에서
 /// key를 다시 입력하지 않고 저장하면 빈 문자열이 온다 - 이 경우 기존 key로 덮어써
 /// 유실시키면 안 됨). 신규 생성(id 없음)인데 key가 비어 있으면 에러로 거부한다.
+///
+/// `input.kind`가 `Local`이면 위 SSH 관련 필드는 전부 무시하고 빈 값으로 저장한다 -
+/// 그 필드들은 이 기기의 온디바이스 엔진(tauri-plugin-katago-local)에는 의미가 없고,
+/// 폼에서도 애초에 감춰지므로 프론트가 뭘 보내든 여기서 확실히 비운다.
 pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, AppError> {
     let mut store = read_store(app)?;
 
@@ -88,31 +92,47 @@ pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, A
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let existing = store.profiles.iter().find(|p| p.id == id).cloned();
 
-    let (private_key, has_passphrase) = if input.private_key.is_empty() {
-        match &existing {
-            Some(existing) => (existing.private_key.clone(), existing.has_passphrase),
-            None => {
-                return Err(AppError::InvalidInput(
-                    "SSH private key를 입력하세요".to_string(),
-                ))
+    let profile = match input.kind {
+        ProfileKind::Local => ServerProfile {
+            id: id.clone(),
+            name: input.name,
+            kind: ProfileKind::Local,
+            host: String::new(),
+            port: 0,
+            username: String::new(),
+            private_key: String::new(),
+            has_passphrase: false,
+            engine_command: String::new(),
+        },
+        ProfileKind::Ssh => {
+            let (private_key, has_passphrase) = if input.private_key.is_empty() {
+                match &existing {
+                    Some(existing) => (existing.private_key.clone(), existing.has_passphrase),
+                    None => {
+                        return Err(AppError::InvalidInput(
+                            "SSH private key를 입력하세요".to_string(),
+                        ))
+                    }
+                }
+            } else {
+                (
+                    input.private_key.clone(),
+                    detect_passphrase(&input.private_key),
+                )
+            };
+
+            ServerProfile {
+                id: id.clone(),
+                name: input.name,
+                kind: ProfileKind::Ssh,
+                host: input.host,
+                port: input.port,
+                username: input.username,
+                private_key,
+                has_passphrase,
+                engine_command: input.engine_command,
             }
         }
-    } else {
-        (
-            input.private_key.clone(),
-            detect_passphrase(&input.private_key),
-        )
-    };
-
-    let profile = ServerProfile {
-        id: id.clone(),
-        name: input.name,
-        host: input.host,
-        port: input.port,
-        username: input.username,
-        private_key,
-        has_passphrase,
-        engine_command: input.engine_command,
     };
 
     match store.profiles.iter_mut().find(|p| p.id == id) {

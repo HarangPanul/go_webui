@@ -2,7 +2,7 @@
 // 처리하고, 여기서는 그 결과 스냅샷을 담아두는 것만 담당하는 얇은 클라이언트. 이
 // 파일은 스냅샷 자체와 그걸 바꾸는 6개 커맨드 래퍼(confirmMove/passMove/goBack/
 // goForward/removeLastMove/toggleTurn)만 담당하고, 임시 선택 UI 상태는
-// pendingMove.svelte.ts, 엔진 자동 착수 설정은 engineColors.svelte.ts가 따로 맡는다.
+// pendingMove.svelte.ts, 엔진 자동 착수 설정은 engineAssignment.svelte.ts가 따로 맡는다.
 //
 // confirmMove/passMove/goBack/goForward/removeLastMove는 pendingMove(다른
 // store - pendingMove.svelte.ts)를 읽고 끝나면 비워야 해서 그쪽을 import한다 -
@@ -13,6 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { pendingMoveStore } from "./pendingMove.svelte";
+import { gameResultStore } from "./gameResult.svelte";
 
 export type Stone = "black" | "white" | null;
 
@@ -72,8 +73,16 @@ function createGameTreeStore() {
   // 화면에 한 수씩 나타나지 않고 다 끝난 뒤에야 한 번에 반영된다. 그래서 백엔드가 매 수
   // 반영 직후 emit하는 이벤트를 구독해 진행 중에도 실시간으로 갱신한다.
   listen<BoardSnapshot>("board-updated", (event) => {
-    snapshot = event.payload;
+    setSnapshot(event.payload);
   });
+
+  // 보드 상태가 실제로 바뀌는(=수순이 이동하는) 모든 지점에서 공통으로 씀 - 기권
+  // 결과(gameResultStore)는 그 기권이 일어난 바로 그 지점에서만 유효하므로, 사람이
+  // 이어서 두거나 뒤로/앞으로 이동하는 등 보드가 조금이라도 움직이면 항상 함께 지운다.
+  function setSnapshot(next: BoardSnapshot) {
+    snapshot = next;
+    gameResultStore.clear();
+  }
 
   return {
     get size() {
@@ -126,38 +135,43 @@ function createGameTreeStore() {
     },
     // 돌을 실제로 두지 않고도 다음에 둘 색을 수동으로 바꿈 (예: 상대 대신 두는 경우 등)
     async toggleTurn() {
-      snapshot = await invoke<BoardSnapshot>("toggle_turn");
+      setSnapshot(await invoke<BoardSnapshot>("toggle_turn"));
     },
     // 빈 칸을 확정하면 착수. 실제 따내기/게임 트리 갱신은 Rust에서 판정하고, 여기서는
     // 그 결과 스냅샷을 반영하기만 함.
     async confirmMove() {
       const pending = pendingMoveStore.pendingMove;
       if (!pending) return;
-      snapshot = await invoke<BoardSnapshot>("confirm_move", pending);
+      // 착수 예정 십자선은 사람이 확정한 그 순간 끝난 UI 상태이므로, 백엔드 응답을
+      // 기다리지 않고 요청 직후 바로 지운다. 엔진 자동 착수가 켜져 있으면
+      // confirm_move는 사람 차례가 돌아올 때까지(엔진 genmove 포함) 응답하지 않는데,
+      // await 뒤에서 지우면 그동안 십자선이 계속 남아있는 것처럼 보였다(로컬 엔진처럼
+      // genmove가 느릴 때 특히 눈에 띔).
       pendingMoveStore.cancelPending();
+      setSnapshot(await invoke<BoardSnapshot>("confirm_move", pending));
     },
     // 착수 없이 차례만 넘김. confirmMove와 마찬가지로 진행 중이던 임시 선택은 비움
-    // (pass 버튼을 누르는 시점엔 어차피 확정하려던 게 아니므로).
+    // (pass 버튼을 누르는 시점엔 어차피 확정하려던 게 아니므로), 역시 응답을 기다리지 않음.
     async passMove() {
-      snapshot = await invoke<BoardSnapshot>("pass_move");
       pendingMoveStore.cancelPending();
+      setSnapshot(await invoke<BoardSnapshot>("pass_move"));
     },
     // 게임 트리에서 부모 노드로 이동(뒤로 가기)
     async goBack() {
-      snapshot = await invoke<BoardSnapshot>("go_back");
       pendingMoveStore.cancelPending();
+      setSnapshot(await invoke<BoardSnapshot>("go_back"));
     },
     // 게임 트리에서 자식 노드로 이동(앞으로 가기). 여러 갈래가 있으면 가장 마지막으로
     // 방문했던 자식으로(한 번도 안 가봤으면 가장 최근에 만들어진 자식으로) 이동함 -
     // 실제 판단은 백엔드(game::GameTree::go_forward)가 함.
     async goForward() {
-      snapshot = await invoke<BoardSnapshot>("go_forward");
       pendingMoveStore.cancelPending();
+      setSnapshot(await invoke<BoardSnapshot>("go_forward"));
     },
     // 현재 노드(=가장 마지막으로 둔 수)를 게임 트리에서 통째로 삭제하고 그 부모로 이동
     async removeLastMove() {
-      snapshot = await invoke<BoardSnapshot>("remove_last_move");
       pendingMoveStore.cancelPending();
+      setSnapshot(await invoke<BoardSnapshot>("remove_last_move"));
     },
   };
 }
