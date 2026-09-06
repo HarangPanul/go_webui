@@ -47,6 +47,8 @@
   "game.engineColor.human": "Human",
   "game.analysis": "Analysis",
   "game.ownership": "Ownership",
+  "game.analysisEngine": "Analysis engine",
+  "game.analysisEngineAuto": "Auto",
   "game.captures": "Captures",
   "settings.keybindings.title": "Keyboard Shortcuts",
   "settings.keybindings.pressKey": "Press a key…",

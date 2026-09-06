@@ -29,9 +29,13 @@ export const commands = {
 	 *  GameControls.svelte가 Analysis/Ownership을 둘 다 끌 때 진행 중이던 kata-analyze
 	 *  스트림을 멈추기 위해 부르는 커맨드. kata-analyze는 "다른 입력"이 들어와야 멈추는
 	 *  스트리밍 명령이라 아무 명령이나 하나 보내면 되는데, 그 "아무 명령"을 어느
-	 *  세션으로 보내야 할지(=지금 분석 중인 세션이 어디인지)는 프런트가 알 수 없으므로
-	 *  (start_kata_analyze와 똑같은 방식으로 세션을 다시 골라) 여기서 직접 계산해 보낸다.
-	 *  이미 스트림이 멈춰 있거나 연결이 없어도 조용히 무시(best-effort).
+	 *  세션으로 보내야 할지는 start_kata_analyze가 state.set_analyzing_profile로 이미
+	 *  기록해둔 profile_id를 그대로 다시 찾아 쓴다 - session_for_analysis로 다시
+	 *  계산하지 않는다: 그 사이 engine_assignment나 차례 색이 바뀌면 여기서 다시 계산한
+	 *  세션이 실제로 분석 중이던 세션과 달라질 수 있고, 그러면 진짜 분석 중이던 세션은
+	 *  아무 인터럽트도 못 받아 스트림이 계속 남아버린다(엔진 리소스가 계속 소모됨).
+	 *  이미 스트림이 멈춰 있거나(analyzing_profile이 None) 그 세션이 연결이 끊겼어도
+	 *  조용히 무시(best-effort).
 	 */
 	stopKataAnalyze: () => __TAURI_INVOKE<null>("stop_kata_analyze"),
 	/**
@@ -48,6 +52,15 @@ export const commands = {
 	 */
 	setEngineAssignment: (color: string, profileId: string | null) => __TAURI_INVOKE<null>("set_engine_assignment", { color, profileId }),
 	getEngineAssignment: () => __TAURI_INVOKE<EngineAssignment>("get_engine_assignment"),
+	getAnalysisEngine: () => __TAURI_INVOKE<string | null>("get_analysis_engine"),
+	/**
+	 *  Analysis/Ownership에 쓸 세션을 사용자가 직접 지정(또는 해제, None)한다. 값을
+	 *  저장해둘 뿐 여기서 바로 스트림을 다시 걸지는 않는다 - 이미 분석이 켜져 있는
+	 *  동안 지정을 바꾸면 프런트(GameControls.svelte)가 이어서 start_kata_analyze를 다시
+	 *  호출해 즉시 새 세션으로 전환한다(엔진 배정을 바꿀 때 곧장 자동 응수를 시도하는
+	 *  set_engine_assignment와 같은 패턴).
+	 */
+	setAnalysisEngine: (profileId: string | null) => __TAURI_INVOKE<void>("set_analysis_engine", { profileId }),
 	getKomi: () => __TAURI_INVOKE<number | null>("get_komi"),
 	/**
 	 *  Settings에서 덤을 바꿀 때 호출. 값을 저장해두는 것과 별개로, 지금 연결된 엔진이

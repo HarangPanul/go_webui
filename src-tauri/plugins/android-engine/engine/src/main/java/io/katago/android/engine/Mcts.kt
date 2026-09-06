@@ -29,7 +29,7 @@ private fun softmax(logits: FloatArray): FloatArray {
  * decided this scope) on top of the original minimal spike:
  *  - log-scaling cPUCT ([cpuctForVisits], from searchexplorehelpers.cpp::cpuctExploration)
  *  - FPU, first play urgency, for unvisited children ([fpuValue])
- *  - a score-aware utility term derived from the ownership head ([valueFromOutput])
+ *  - a score-aware utility term derived from the ownership head ([winLossValue]/[scoreUtilityValue])
  *  - LCB (lower confidence bound) final move selection instead of plain most-visited
  *    ([selectFinalMove])
  *
@@ -79,14 +79,29 @@ class Mcts(
         var visitCount: Int = 0
         var valueSum: Double = 0.0
         var valueSqSum: Double = 0.0
+        // Backed up in parallel with valueSum but tracks *only* the win/loss term, never the
+        // blended score utility - see [rootCandidates]'s kdoc for why this needs to be kept
+        // separate from valueSum/meanValue (which is deliberately unbounded past [-1, 1] and
+        // is only ever used for search/selection, never reported as a "winrate").
+        var winLossSum: Double = 0.0
         val children = LinkedHashMap<MctsMove, Node>()
         var expanded = false
 
         val meanValue: Double
             get() = if (visitCount == 0) 0.0 else valueSum / visitCount
+
+        val meanWinLoss: Double
+            get() = if (visitCount == 0) 0.0 else winLossSum / visitCount
     }
 
     private val root = Node(prior = 1f)
+
+    // 루트 위치 자체를 신경망이 한 번 평가한 원본(pre-tanh) 출력 - 루트가 처음
+    // expand될 때 한 번만 채워지고 이후 search()를 몇 번을 더 불러도 안 바뀐다(그
+    // 시점의 신경망 평가 자체는 트리가 자라도 달라지지 않으므로). kata-analyze
+    // 스트리밍(GtpShell.kt)이 [rootOwnership]으로 매 보고 주기마다 재사용 - 매번
+    // 새로 신경망을 돌리면 보고 한 번에 시뮬레이션 하나만큼의 비용이 더 들어간다.
+    private var rootOutput: KataGoOutput? = null
 
     /** Runs [numSimulations] simulations from the current root and returns the chosen move
      * (LCB winner among sufficiently-visited children - see [selectFinalMove]). */
@@ -95,6 +110,36 @@ class Mcts(
         repeat(numSimulations) { runSimulation() }
         return selectFinalMove()
     }
+
+    /** 지금까지 실제로 방문된(visitCount > 0) 루트의 자식 수들, 방문 수 내림차순.
+     * kata-analyze 스트리밍이 "info move ..." 후보 목록으로 그대로 보고한다. */
+    data class RootCandidate(val move: MctsMove, val visits: Int, val winrateForRootMover: Double)
+
+    fun rootCandidates(): List<RootCandidate> {
+        return root.children.entries
+            .filter { it.value.visitCount > 0 }
+            .sortedByDescending { it.value.visitCount }
+            .map { (move, node) ->
+                // node.meanWinLoss(순수 승/패 항)에서 계산한다 - node.meanValue는 FPU/
+                // exploreSelectionValue/selectFinalMove의 LCB에 쓰는 "탐색용 블렌디드
+                // 유틸리티"라 winLossUtilityFactor(1.0) + scoreUtilityFactor(0.4)가 겹치는
+                // 극단적으로 확실한 국면에서는 (-1.4, 1.4) 범위까지 벗어날 수 있다 -
+                // 그걸 그대로 아래 공식에 넣으면 winrate가 0~1을 벗어나(예: 1.2 = 120%)
+                // WinrateGraph의 막대 비율이 깨진다(발견 경위: go_webui 세션 코드 리뷰).
+                // node.meanValue와 마찬가지로 backup()이 매 ply마다 부호를 뒤집으므로
+                // "그 수를 둔 다음 상대가 둘 차례" 관점 - 루트에서 지금 둘 차례인 쪽
+                // 기준으로 보려면 한 번 더 뒤집어야 한다(genmoveReal()이 고르는 최종
+                // 수와 같은 기준으로 맞추기 위함).
+                RootCandidate(move, node.visitCount, (-node.meanWinLoss + 1.0) / 2.0)
+            }
+    }
+
+    /** 루트 위치의 원본 ownership(신경망이 그 자리에서 낸 값 그대로, pre-tanh) - 아직
+     * 한 번도 expand되지 않았으면(=아직 시뮬레이션이 한 번도 안 끝났으면) null.
+     * 진짜 KataGo의 kata-analyze는 탐색 트리 전체의 방문 가중 평균을 내지만, 이
+     * 최소 구현은 그 정교함 없이 "지금 위치를 신경망이 어떻게 보는가"만 근사로
+     * 보여준다(트리가 자라도 이 값 자체는 안 바뀜 - 위 [rootOutput] 참고). */
+    fun rootOwnership(): FloatArray? = rootOutput?.ownershipPretanh
 
     private fun runSimulation() {
         val path = mutableListOf<MctsMove>()
@@ -117,11 +162,12 @@ class Mcts(
 
         val (output, board) = evaluatePath(path)
         board.use {
-            val value = valueFromOutput(output)
+            val winLoss = winLossValue(output)
+            val value = winLoss * winLossUtilityFactor + scoreUtilityValue(output) * scoreUtilityFactor
             if (!node.expanded) {
                 expand(node, output, board)
             }
-            backup(nodePath, value)
+            backup(nodePath, value, winLoss)
         }
     }
 
@@ -174,22 +220,27 @@ class Mcts(
      * estimate, squashed through tanh (same qualitative shape as KataGo's own soft-clamped
      * score-to-utility curve - bounded, roughly linear near zero, saturating for blowouts)
      * and normalized by board area.
+     *
+     * [winLossValue] and [scoreUtilityValue] are kept as separate functions (rather than one
+     * combined valueFromOutput like the original spike had) because callers need both the
+     * blended sum *and* the bare win/loss term on its own - see [Node.winLossSum]'s kdoc for
+     * why reporting can't just reuse the blended value.
      */
-    private fun valueFromOutput(output: KataGoOutput): Double {
-        val winLoss = run {
-            val probs = softmax(output.valueLogits) // [win, loss, noResult]
-            (probs[0] - probs[1]).toDouble()
-        }
+    private fun winLossValue(output: KataGoOutput): Double {
+        val probs = softmax(output.valueLogits) // [win, loss, noResult]
+        return (probs[0] - probs[1]).toDouble()
+    }
 
+    private fun scoreUtilityValue(output: KataGoOutput): Double {
         val numCells = boardSize * boardSize
         var scoreEstimate = 0.0
         for (i in 0 until numCells) scoreEstimate += tanh(output.ownershipPretanh[i].toDouble())
-        val scoreUtility = tanh(scoreEstimate / (0.5 * numCells))
-
-        return winLoss * winLossUtilityFactor + scoreUtility * scoreUtilityFactor
+        return tanh(scoreEstimate / (0.5 * numCells))
     }
 
     private fun expand(node: Node, output: KataGoOutput, board: NativeBoard) {
+        if (node === root) rootOutput = output
+
         // policyLogits layout: [numPolicyOutputs, nnXLen*nnYLen + 1]; row 0 is the move
         // KataGo actually plays on. See KataGoOutput's kdoc and PolicyHead.forward in
         // katago's model_pytorch.py.
@@ -210,14 +261,17 @@ class Mcts(
         node.expanded = true
     }
 
-    private fun backup(nodePath: List<Node>, leafValue: Double) {
-        // Value alternates sign by ply since it's always from the mover-to-play's perspective.
+    private fun backup(nodePath: List<Node>, leafValue: Double, leafWinLoss: Double) {
+        // Both alternate sign by ply since they're always from the mover-to-play's perspective.
         var value = leafValue
+        var winLoss = leafWinLoss
         for (node in nodePath.asReversed()) {
             node.visitCount += 1
             node.valueSum += value
             node.valueSqSum += value * value
+            node.winLossSum += winLoss
             value = -value
+            winLoss = -winLoss
         }
     }
 

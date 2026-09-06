@@ -10,6 +10,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use tauri::ipc::Channel;
 use tauri::AppHandle;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
@@ -36,25 +37,43 @@ impl GtpTransport for AndroidLocalTransport {
     }
 
     async fn open(&self) -> Result<OpenTransport, AppError> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        // kata-analyze 스트리밍("info ..." 라인)을 gtpLine 호출 하나의 응답만으로는
+        // 표현할 수 없어서(그 호출은 매번 응답 하나로 끝나야 함) 만든 별도 경로 -
+        // GtpShell.kt가 분석 중일 때 이 호출의 반환과 무관하게 원하는 시점에 몇 번이고
+        // channel.sendObject(line)을 부를 수 있다. Channel은 clone해도 같은 id를
+        // 공유하므로 여기서 하나만 만들어 이후 모든 GtpLineRequest에 그대로 실어
+        // 보낸다(models.rs::GtpLineRequest 문서 참고).
+        let tx_for_channel = tx.clone();
+        let analysis_channel: Channel<serde_json::Value> = Channel::new(move |body| {
+            if let Ok(line) = body.deserialize::<String>() {
+                let _ = tx_for_channel.send(TransportEvent::Line(line));
+            }
+            Ok(())
+        });
+
         // 실제로 "여는" 작업은 없음(항상 같은 프로세스) - 대신 한 번 명령을 보내봐서
         // 이 플랫폼이 애초에 지원되지 않으면(desktop.rs의 UnsupportedPlatform) 연결
         // 시점에 바로 에러로 드러나게 한다. 그러지 않으면 "연결됨"으로 보였다가 첫
         // GTP 명령에서야 실패해 원인을 알기 어렵다.
         let app = self.app.clone();
+        let handshake_channel = analysis_channel.clone();
         tokio::task::spawn_blocking(move || {
             app.katago_local().gtp_line(GtpLineRequest {
                 line: "name".to_string(),
+                channel: handshake_channel,
             })
         })
         .await
         .map_err(|e| AppError::GtpSendFailed(format!("로컬 엔진 호출 실패: {e}")))?
         .map_err(|e| AppError::GtpSendFailed(format!("로컬 엔진을 사용할 수 없습니다: {e}")))?;
 
-        let (tx, rx) = mpsc::unbounded_channel();
         let writer = LocalWriter {
             app: self.app.clone(),
             buf: Vec::new(),
             tx,
+            analysis_channel,
         };
 
         Ok(OpenTransport {
@@ -93,6 +112,9 @@ struct LocalWriter {
     app: AppHandle,
     buf: Vec<u8>,
     tx: mpsc::UnboundedSender<TransportEvent>,
+    // 이 세션 전체에서 하나만 만들어(open() 참고) 매 gtpLine 호출에 그대로 실어 보내는
+    // kata-analyze 스트리밍용 채널.
+    analysis_channel: Channel<serde_json::Value>,
 }
 
 impl AsyncWrite for LocalWriter {
@@ -112,10 +134,12 @@ impl AsyncWrite for LocalWriter {
 
             let app = this.app.clone();
             let tx = this.tx.clone();
+            let channel = this.analysis_channel.clone();
             tokio::spawn(async move {
-                let result =
-                    tokio::task::spawn_blocking(move || app.katago_local().gtp_line(GtpLineRequest { line }))
-                        .await;
+                let result = tokio::task::spawn_blocking(move || {
+                    app.katago_local().gtp_line(GtpLineRequest { line, channel })
+                })
+                .await;
 
                 let response = match result {
                     Ok(Ok(resp)) => resp.response,

@@ -5,6 +5,7 @@ import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
@@ -18,6 +19,13 @@ class PingArgs {
 @InvokeArg
 class GtpLineArgs {
     lateinit var line: String
+
+    // kata-analyze 스트리밍("info ..." 라인)을 이 호출의 반환(response)과 별도로
+    // 비동기로 밀어넣는 통로 - GtpShell.handle()이 kata-analyze 실행 중에는 이 채널을
+    // 붙잡아두고 몇 번이고 sendObject()를 부른다. 모든 gtpLine 호출에 항상 실려 오지만
+    // (android_transport.rs::open()이 세션당 하나만 만들어 매번 그대로 실어 보냄)
+    // kata-analyze가 아닌 명령에서는 그냥 쓰이지 않는다.
+    lateinit var channel: Channel
 }
 
 // ping은 Rust <-> Kotlin 플러그인 배선(Cargo 경로 의존성 -> gen/android 자동 Gradle
@@ -49,7 +57,7 @@ class KatagoLocalPlugin(private val activity: Activity) : Plugin(activity) {
     fun gtpLine(invoke: Invoke) {
         val args = invoke.parseArgs(GtpLineArgs::class.java)
         worker.execute {
-            val response = gtpShell.handle(args.line)
+            val response = gtpShell.handle(args.line, args.channel)
             Log.i("KatagoLocalPlugin", "gtp: ${args.line} -> $response")
             val ret = JSObject()
             ret.put("response", response)

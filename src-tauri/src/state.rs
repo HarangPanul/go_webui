@@ -55,6 +55,24 @@ pub struct AppState {
     // 즉시 반영한다 - 로컬 게임 트리 자체는 덤을 집 계산에 쓰지 않으므로(그건
     // KataGo에 위임) 여기 보관된 값은 오직 엔진에 보낼 값을 기억해두는 용도.
     komi: Mutex<f64>,
+    // 사용자가 Analysis/Ownership에 쓸 세션으로 직접 고른 프로필 id(None이면
+    // commands::gtp::session_for_analysis가 기존 방식대로 자동으로 고름 - 지금 차례
+    // 색에 배정된 세션, 없으면 연결된 아무 세션). self-play처럼 흑/백 둘 다 같은
+    // 서버에 배정해 genmove가 끊임없이 도는 상황에서는 그 서버가 kata-analyze도 함께
+    // 맡으면 GTP가 한 세션에서 genmove/kata-analyze를 동시에 못 하는 특성상 분석이
+    // 사실상 전혀 나오지 않는다(engine_sync::request_engine_move_if_needed의 매
+    // genmove가 곧바로 kata-analyze를 인터럽트해버림) - 다른 서버를 하나 더 연결해
+    // 여기에 지정해두면 genmove와 분석이 서로 다른 세션을 써서 서로 끊지 않는다.
+    analysis_engine: Mutex<Option<String>>,
+    // 지금 kata-analyze 스트림을 실제로 돌리고 있는 세션의 profile_id -
+    // commands::gtp::start_kata_analyze가 명령을 보내는 바로 그 세션으로 기록해두고,
+    // stop_kata_analyze는 (그 사이 engine_assignment나 차례 색이 바뀌었더라도) 항상
+    // 이 값을 그대로 다시 조회해 인터럽트를 보낸다 - start와 stop이 각자 독립적으로
+    // "지금 이 색 차례를 담당하는 세션"을 다시 계산하면, 그 사이 배정이 바뀌었을 때
+    // stop이 엉뚱한(현재는 그 색을 담당하지만 실제로 분석 중은 아닌) 세션을
+    // 인터럽트하고 진짜 분석 중이던 세션은 아무도 멈추지 않아 스트림이 계속 남는
+    // 문제가 있었다.
+    analyzing_profile: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -64,6 +82,8 @@ impl Default for AppState {
             game: Mutex::new(GameTree::default()),
             engine_assignment: Mutex::new(EngineAssignment::default()),
             komi: Mutex::new(DEFAULT_KOMI),
+            analysis_engine: Mutex::new(None),
+            analyzing_profile: Mutex::new(None),
         }
     }
 }
@@ -100,9 +120,27 @@ impl AppState {
     }
 
     /// 연결된 세션이 하나도 없으면 None. kata-analyze처럼 "누가 됐든 연결된 엔진
-    /// 아무거나 하나"면 충분한 경우(지금 차례 색에 배정된 세션이 없을 때의 폴백)에 사용.
-    pub async fn any_session(&self) -> Option<Arc<GtpSession>> {
-        self.sessions.lock().await.values().next().cloned()
+    /// 아무거나 하나"면 충분한 경우(지금 차례 색에 배정된 세션이 없을 때의 폴백)에
+    /// 그 세션의 profile_id도 함께 필요해서(commands::gtp::start_kata_analyze가
+    /// state.set_analyzing_profile에 기록) 항상 이 id-포함 버전만 쓴다.
+    pub async fn any_session_with_id(&self) -> Option<(String, Arc<GtpSession>)> {
+        self.sessions
+            .lock()
+            .await
+            .iter()
+            .next()
+            .map(|(id, session)| (id.clone(), session.clone()))
+    }
+
+    /// [`session_for_color`]와 같지만 그 세션의 profile_id도 함께 돌려준다(용도는
+    /// [`any_session_with_id`]와 동일).
+    pub async fn session_for_color_with_id(&self, color: Color) -> Option<(String, Arc<GtpSession>)> {
+        let profile_id = {
+            let assignment = self.engine_assignment.lock().unwrap();
+            assignment.profile_for(color).map(|id| id.to_string())
+        }?;
+        let session = self.session_for_profile(&profile_id).await?;
+        Some((profile_id, session))
     }
 
     pub async fn insert_session(&self, profile_id: String, session: Arc<GtpSession>) {
@@ -154,11 +192,48 @@ impl AppState {
         }
     }
 
+    /// 사용자가 Analysis/Ownership에 쓰라고 직접 고른 프로필 id (없으면 None -
+    /// commands::gtp::session_for_analysis가 자동 선택으로 폴백).
+    pub fn analysis_engine(&self) -> Option<String> {
+        self.analysis_engine.lock().unwrap().clone()
+    }
+
+    pub fn set_analysis_engine(&self, profile_id: Option<String>) {
+        *self.analysis_engine.lock().unwrap() = profile_id;
+    }
+
+    /// 연결이 끊긴 프로필이 계속 분석 엔진으로 지정된 채로 남지 않게 한다
+    /// (disconnect_ssh 전용, clear_engine_assignment_for와 같은 패턴).
+    pub fn clear_analysis_engine_for(&self, profile_id: &str) {
+        let mut engine = self.analysis_engine.lock().unwrap();
+        if engine.as_deref() == Some(profile_id) {
+            *engine = None;
+        }
+    }
+
     pub fn komi(&self) -> f64 {
         *self.komi.lock().unwrap()
     }
 
     pub fn set_komi_value(&self, komi: f64) {
         *self.komi.lock().unwrap() = komi;
+    }
+
+    /// start_kata_analyze가 명령을 보내는 바로 그 세션의 profile_id를 기록한다.
+    pub fn set_analyzing_profile(&self, profile_id: Option<String>) {
+        *self.analyzing_profile.lock().unwrap() = profile_id;
+    }
+
+    /// stop_kata_analyze가 인터럽트를 보낼 세션을 고르는 데 사용 - 동시에 값을
+    /// None으로 비워서(take) 이미 멈춘 분석을 다시 멈추려 하지 않게 한다.
+    pub fn take_analyzing_profile(&self) -> Option<String> {
+        self.analyzing_profile.lock().unwrap().take()
+    }
+
+    /// [`take_analyzing_profile`]과 달리 값을 비우지 않고 읽기만 한다 -
+    /// engine_sync::resume_analysis_for_current_position처럼 "지금 분석 중인 세션이
+    /// 어디인지 알아야 하지만 분석 자체를 끄려는 건 아닌" 경우에 사용.
+    pub fn analyzing_profile(&self) -> Option<String> {
+        self.analyzing_profile.lock().unwrap().clone()
     }
 }

@@ -106,9 +106,21 @@ fn split_move_blocks(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// 이 블록 파서가 이름으로 알아보는 key들 - 알 수 없는 key를 건너뛸 때 "다음
+/// 알려진 key가 나올 때까지"의 경계로도 쓰인다([parse_move_block] 참고).
+const KNOWN_BLOCK_KEYS: &[&str] = &["move", "visits", "winrate", "scoreLead", "pv"];
+
 /// "move A visits N winrate F scoreLead F ... pv A B C" 한 블록을 파싱. 알 수 없는
-/// key(scoreStdev/prior/lcb/order 등, KataGo 버전별로 다를 수 있음)는 값 하나만
-/// 건너뛰고 무시 — 파싱 자체가 깨지지 않도록 관대하게 처리.
+/// key(scoreStdev/prior/lcb/order 등, KataGo 버전별로 다를 수 있음)는 무시하고
+/// 건너뛴다 — 파싱 자체가 깨지지 않도록 관대하게 처리.
+///
+/// 건너뛸 때 "값 토큰 정확히 하나"를 가정하지 않는다 - 대신 다음으로 [KNOWN_BLOCK_KEYS]에
+/// 속한 토큰이 나올 때까지 계속 건너뛴다. 지금 우리가 실제로 받는 필드(scoreStdev/prior/
+/// lcb/order 등)는 전부 값 하나짜리지만, 그걸 하드코딩해서 가정하면 나중에 값이 없는
+/// 플래그성 필드나 여러 토큰짜리 리스트 필드(KataGo의 pvVisits/pvEdgeVisits 등, 지금은
+/// 요청하지 않지만 옵션이 늘어나면 나타날 수 있음)가 섞였을 때 그 뒤 필드 전부가
+/// 밀려서 잘못 파싱된다 - "다음 알려진 key까지 건너뛰기"는 값 토큰이 0개든 여러 개든
+/// 항상 안전하다.
 ///
 /// pv 뒤에 좌표로 보이지 않는 토큰이 남아있으면(마지막 move 블록에만 발생 -
 /// "ownership true"로 요청했을 때 줄 맨 끝에 붙는 "ownership <값...>" 같은 줄
@@ -153,7 +165,10 @@ fn parse_move_block(block: &str) -> Option<(KataAnalyzeMove, Vec<String>)> {
                 idx = tokens.len();
             }
             _ => {
-                idx += 2;
+                idx += 1;
+                while idx < tokens.len() && !KNOWN_BLOCK_KEYS.contains(&tokens[idx]) {
+                    idx += 1;
+                }
             }
         }
     }
@@ -210,6 +225,29 @@ mod tests {
         let line = "info move Q16 visits 123 winrate 0.54 scoreLead 1.2 pv Q16 D4";
         let result = parse_kata_analyze(line).expect("should parse");
         assert_eq!(result.ownership, None);
+    }
+
+    #[test]
+    fn unknown_field_with_no_value_token_does_not_swallow_following_fields() {
+        // "isDuringSearch"류 플래그성 필드를 값 없이 흉내(실제로는 항상 값이 붙지만,
+        // 파서가 "값 하나" 가정 없이도 다음 알려진 key까지 안전하게 건너뛰는지 확인).
+        let line = "info move Q16 visits 123 winrate 0.54 scoreLead 1.2 isDuringSearch pv Q16 D4";
+        let result = parse_kata_analyze(line).expect("should parse");
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].pv, vec!["Q16", "D4"]);
+    }
+
+    #[test]
+    fn unknown_field_with_multiple_value_tokens_does_not_swallow_following_fields() {
+        // pvVisits류 리스트 필드를 흉내(여러 토큰짜리 값) - "값 하나"만 건너뛰면 남은
+        // 토큰들이 다음 필드(winrate)의 key/value로 잘못 소비된다.
+        let line = "info move Q16 visits 123 pvVisits 10 8 6 4 winrate 0.54 scoreLead 1.2 pv Q16 D4";
+        let result = parse_kata_analyze(line).expect("should parse");
+        let c = &result.candidates[0];
+        assert_eq!(c.visits, 123);
+        assert!((c.winrate - 0.54).abs() < 1e-9);
+        assert!((c.score_lead - 1.2).abs() < 1e-9);
+        assert_eq!(c.pv, vec!["Q16", "D4"]);
     }
 
     #[test]

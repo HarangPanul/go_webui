@@ -24,17 +24,48 @@ pub async fn send_gtp_command(
     session.send(&command).await
 }
 
-/// kata-analyze를 보낼 세션을 고른다: 지금 차례 색에 엔진이 배정되어 있으면 그
-/// 세션을(genmove가 쓸 세션과 같은 곳을 분석해야 착수 직후에도 결과가 이어짐),
-/// 아니면(예: 사람 vs 사람 대국에 엔진 하나를 분석 전용으로만 연결해둔 경우) 연결된
-/// 세션 아무거나 하나를 폴백으로 쓴다. 여러 서버가 동시에 연결되어 있고 아무 배정도
-/// 없을 때 그중 정확히 어느 걸 분석할지는 아직 사용자가 고를 수 없다(추후 개선 대상) -
-/// 지금은 "연결된 것 중 하나"면 충분한 단일 연결 사용 패턴을 그대로 지원하는 데 목적이 있다.
-async fn session_for_analysis(state: &AppState, current_turn: Color) -> Option<Arc<GtpSession>> {
-    if let Some(session) = state.session_for_color(current_turn).await {
-        return Some(session);
+/// kata-analyze를 보낼 세션을 고른다: 사용자가 Settings에서 Analysis 엔진을 직접
+/// 지정해뒀으면(state.analysis_engine) 그 세션을 최우선으로 쓴다 - self-play처럼
+/// 흑/백 둘 다 같은 서버에 배정해 genmove가 끊임없이 도는 상황에서는 그 서버가
+/// kata-analyze도 함께 맡으면 GTP가 한 세션에서 genmove/kata-analyze를 동시에 못 하는
+/// 특성상 분석이 사실상 전혀 나오지 않기 때문(engine_sync::request_engine_move_if_needed의
+/// 매 genmove가 곧바로 kata-analyze를 인터럽트해버림) - 다른 서버를 하나 더 연결해
+/// 이걸로 지정해두면 genmove와 분석이 서로 다른 세션을 써서 서로 끊지 않는다.
+///
+/// 지정된 게 없거나 그 프로필이 연결되어 있지 않으면, 지금 차례 색에 엔진이
+/// 배정되어 있는 세션을(genmove가 쓸 세션과 같은 곳을 분석해야 착수 직후에도 결과가
+/// 이어짐), 그것도 없으면 연결된 세션 아무거나 하나를 폴백으로 쓴다.
+///
+/// profile_id도 함께 돌려준다 - start_kata_analyze가 이걸 state.set_analyzing_profile로
+/// 기록해둬야, 그 사이 배정/차례가 바뀌어도 stop_kata_analyze가 (다시 계산하지 않고)
+/// 정확히 이 세션을 찾아 인터럽트를 보낼 수 있다.
+async fn session_for_analysis(state: &AppState, current_turn: Color) -> Option<(String, Arc<GtpSession>)> {
+    if let Some(id) = state.analysis_engine() {
+        if let Some(session) = state.session_for_profile(&id).await {
+            return Some((id, session));
+        }
     }
-    state.any_session().await
+    if let Some(found) = state.session_for_color_with_id(current_turn).await {
+        return Some(found);
+    }
+    state.any_session_with_id().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_analysis_engine(state: State<AppState>) -> Option<String> {
+    state.analysis_engine()
+}
+
+/// Analysis/Ownership에 쓸 세션을 사용자가 직접 지정(또는 해제, None)한다. 값을
+/// 저장해둘 뿐 여기서 바로 스트림을 다시 걸지는 않는다 - 이미 분석이 켜져 있는
+/// 동안 지정을 바꾸면 프런트(GameControls.svelte)가 이어서 start_kata_analyze를 다시
+/// 호출해 즉시 새 세션으로 전환한다(엔진 배정을 바꿀 때 곧장 자동 응수를 시도하는
+/// set_engine_assignment와 같은 패턴).
+#[tauri::command]
+#[specta::specta]
+pub fn set_analysis_engine(profile_id: Option<String>, state: State<AppState>) {
+    state.set_analysis_engine(profile_id);
 }
 
 /// kata-analyze를 (재)시작한다. 일반 `send_gtp_command`로도 문자열상 똑같이 보낼 수
@@ -52,9 +83,27 @@ pub async fn start_kata_analyze(
 ) -> Result<String, AppError> {
     let snapshot = state.game_snapshot();
 
-    let session = session_for_analysis(&state, snapshot.current_turn).await;
-    let session = session.ok_or(AppError::NotConnected)?;
+    let found = session_for_analysis(&state, snapshot.current_turn).await;
+    let (profile_id, session) = found.ok_or(AppError::NotConnected)?;
 
+    // 방금 고른 세션이 지금까지 분석 중이던 세션과 다르면(사용자가 GameControls의
+    // Analysis 엔진 드롭다운으로 직접 바꿨을 때만 일어남 - 보통의 재시작은 항상 같은
+    // 세션이라 이 분기를 안 탐) 그 이전 세션에도 인터럽트를 보내 스트림을 멈춰야
+    // 한다. 안 그러면 이전 세션이 아무도 안 막았으니 계속 kata-analyze를 돌리면서,
+    // 같은 노드 id에 대해 새 세션과 서로 다른 결과를 각자의 갱신 주기마다 번갈아
+    // emit해버린다 - analysisStore는 노드 id 하나에 결과 하나만 캐싱하므로
+    // (analysis.svelte.ts 참고) 화면이 두 엔진의 의견 사이에서 계속 요동치는 것으로
+    // 보였다(go_webui 세션에서 사용자가 직접 보고).
+    if let Some(previous_id) = state.analyzing_profile() {
+        if previous_id != profile_id {
+            if let Some(previous_session) = state.session_for_profile(&previous_id).await {
+                previous_session.clear_analysis_wanted();
+                let _ = previous_session.send("name").await;
+            }
+        }
+    }
+
+    state.set_analyzing_profile(Some(profile_id));
     session.set_analysis_context(snapshot.node_id, snapshot.current_turn);
     session.set_analysis_wanted(interval_centiseconds);
     session
@@ -67,14 +116,20 @@ pub async fn start_kata_analyze(
 /// GameControls.svelte가 Analysis/Ownership을 둘 다 끌 때 진행 중이던 kata-analyze
 /// 스트림을 멈추기 위해 부르는 커맨드. kata-analyze는 "다른 입력"이 들어와야 멈추는
 /// 스트리밍 명령이라 아무 명령이나 하나 보내면 되는데, 그 "아무 명령"을 어느
-/// 세션으로 보내야 할지(=지금 분석 중인 세션이 어디인지)는 프런트가 알 수 없으므로
-/// (start_kata_analyze와 똑같은 방식으로 세션을 다시 골라) 여기서 직접 계산해 보낸다.
-/// 이미 스트림이 멈춰 있거나 연결이 없어도 조용히 무시(best-effort).
+/// 세션으로 보내야 할지는 start_kata_analyze가 state.set_analyzing_profile로 이미
+/// 기록해둔 profile_id를 그대로 다시 찾아 쓴다 - session_for_analysis로 다시
+/// 계산하지 않는다: 그 사이 engine_assignment나 차례 색이 바뀌면 여기서 다시 계산한
+/// 세션이 실제로 분석 중이던 세션과 달라질 수 있고, 그러면 진짜 분석 중이던 세션은
+/// 아무 인터럽트도 못 받아 스트림이 계속 남아버린다(엔진 리소스가 계속 소모됨).
+/// 이미 스트림이 멈춰 있거나(analyzing_profile이 None) 그 세션이 연결이 끊겼어도
+/// 조용히 무시(best-effort).
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_kata_analyze(state: State<'_, AppState>) -> Result<(), AppError> {
-    let current_turn = state.game_snapshot().current_turn;
-    if let Some(session) = session_for_analysis(&state, current_turn).await {
+    let Some(profile_id) = state.take_analyzing_profile() else {
+        return Ok(());
+    };
+    if let Some(session) = state.session_for_profile(&profile_id).await {
         session.clear_analysis_wanted();
         let _ = session.send("name").await;
     }

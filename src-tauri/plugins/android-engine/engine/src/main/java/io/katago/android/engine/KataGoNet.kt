@@ -26,7 +26,10 @@ data class KataGoOutput(
  * to run the converted tf3-b11c768 ("t11b") model.
  *
  * Not guaranteed thread-safe; confine each instance to one thread (e.g. one per MCTS worker)
- * unless a specific implementation documents otherwise.
+ * unless a specific implementation documents otherwise - [ExecuTorchEngine] is the one
+ * exception (see its kdoc): it internally serializes [evaluate]/[close] so two threads
+ * calling into the same instance can't corrupt native state, though they still just queue up
+ * behind each other rather than actually running in parallel.
  */
 interface KataGoNet : AutoCloseable {
     /** Board size this instance was built for (fixed at construction; matches nnXLen/nnYLen). */

@@ -48,7 +48,7 @@ impl<R: Runtime, T: Manager<R>> crate::KatagoLocalExt<R> for T {
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("katago-local")
-        .invoke_handler(tauri::generate_handler![commands::ping, commands::gtp_line])
+        .invoke_handler(tauri::generate_handler![commands::ping])
         .setup(|app, api| {
             #[cfg(mobile)]
             let katago_local = mobile::init(app, api)?;

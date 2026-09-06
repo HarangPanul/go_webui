@@ -30,6 +30,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::gtp::stop_kata_analyze,
             commands::gtp::set_engine_assignment,
             commands::gtp::get_engine_assignment,
+            commands::gtp::get_analysis_engine,
+            commands::gtp::set_analysis_engine,
             commands::gtp::get_komi,
             commands::gtp::set_komi,
             commands::local_engine::get_max_visits,

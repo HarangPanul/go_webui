@@ -9,6 +9,7 @@
   import { gtpStore } from "../../stores/gtp.svelte";
   import { connectionStore } from "../../stores/connection.svelte";
   import { analysisStore } from "../../stores/analysis.svelte";
+  import { analysisEngineStore } from "../../stores/analysisEngine.svelte";
   import { holdToRepeat } from "../../utils/holdToRepeat";
   import Button from "../ui/Button.svelte";
   import Select from "../ui/Select.svelte";
@@ -95,6 +96,22 @@
   function toggleOwnership() {
     if (connectionStore.connectedProfileIds.length === 0) return;
     analysisStore.toggleOwnership();
+  }
+
+  // Analysis/Ownership에 쓸 세션을 자동(지금 차례 색에 배정된 세션 -> 없으면 연결된
+  // 아무 세션) 대신 직접 고른다 - self-play처럼 흑/백 둘 다 같은 서버에 배정해
+  // genmove가 끊임없이 도는 상황에서는 그 서버가 kata-analyze도 함께 맡으면 매
+  // genmove가 곧바로 분석 스트림을 인터럽트해버려 결과가 사실상 전혀 안 들어온다
+  // (GTP 프로토콜 자체의 제약 - 한 세션이 genmove/kata-analyze를 동시에 못 함).
+  // 다른 서버를 하나 더 연결해 여기서 지정해두면 서로 다른 세션을 쓰게 되어 이 문제가
+  // 없다. 지금 스트림이 이미 켜져 있으면(streamWanted) 바로 이어서 startAnalysis()를
+  // 다시 호출해 새로 고른 세션으로 즉시 전환한다 - 안 그러면 다음 착수/이동이 있을
+  // 때까지는 옛 세션으로 계속 분석 중인 것처럼 보인다.
+  function handleAnalysisEngineChange(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    analysisEngineStore.setProfileId(value === "" ? null : value).then(() => {
+      if (streamWanted) startAnalysis();
+    });
   }
 
   // streamWanted가 꺼지는 쪽으로 바뀔 때(=Analysis/Ownership 둘 다 꺼졌을 때)만 실제로
@@ -191,6 +208,21 @@
   >
     {t("game.ownership")}
   </Button>
+  <!-- 자동(지금 차례 색에 배정된 세션 -> 없으면 연결된 아무 세션) 대신 Analysis/
+  Ownership에 쓸 세션을 직접 고름 - self-play로 흑/백 둘 다 같은 서버에 배정해뒀을 때
+  분석이 전혀 안 들어오는 문제의 우회책(handleAnalysisEngineChange 참고). 연결된
+  프로필이 하나뿐이면 골라봐야 의미가 없으므로 둘 이상 연결됐을 때만 보여준다. -->
+  {#if connectedProfiles.length > 1}
+    <label class="engine-assign">
+      <span>{t("game.analysisEngine")}</span>
+      <Select value={analysisEngineStore.profileId ?? ""} onchange={handleAnalysisEngineChange}>
+        <option value="">{t("game.analysisEngineAuto")}</option>
+        {#each connectedProfiles as profile (profile.id)}
+          <option value={profile.id}>{profile.name || profile.host}</option>
+        {/each}
+      </Select>
+    </label>
+  {/if}
   <!-- 착수 없이 차례만 넘김. pendingMove 여부와 무관하게 항상 누를 수 있음(누르면
   진행 중이던 임시 선택은 알아서 비워짐 - gameTree.svelte.ts::passMove 참고). -->
   <Button onclick={() => gameTreeStore.passMove()}>

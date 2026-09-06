@@ -138,7 +138,16 @@ pub async fn resume_analysis_if_wanted(state: &AppState, session: &GtpSession) {
 /// 서버가 양쪽에 배정돼 있으면(세션은 하나뿐이므로) 자기 자신과 대국하듯 계속
 /// 이어간다. 매 수 반영 직후 "board-updated" 이벤트를 emit해서, 이 반복이 오래
 /// 걸려도(생각 시간 등) 프론트가 한 수씩 실시간으로 그릴 수 있게 한다.
+///
+/// 자동 응수 루프 자체가 멈춘 뒤에만(사람 차례로 넘어갔든, 기권/막힘으로 끝났든)
+/// [resume_analysis_for_current_position]으로 분석을 한 번 다시 걸어준다 - 루프가
+/// 도는 동안 매 수마다 걸지 않는 이유는 아래 kdoc 참고.
 pub async fn request_engine_move_if_needed(state: &AppState, app: &AppHandle) {
+    drive_engine_moves(state, app).await;
+    resume_analysis_for_current_position(state).await;
+}
+
+async fn drive_engine_moves(state: &AppState, app: &AppHandle) {
     loop {
         let (current_turn, size) =
             state.with_game(|game| (game.snapshot().current_turn, game.size()));
@@ -189,4 +198,34 @@ pub async fn request_engine_move_if_needed(state: &AppState, app: &AppHandle) {
         let snapshot = state.game_snapshot();
         let _ = app.emit("board-updated", snapshot);
     }
+}
+
+/// [request_engine_move_if_needed]가 자동 응수 루프를 마친 뒤 딱 한 번 호출: 지금
+/// 분석이 켜져 있으면(state.analyzing_profile) 최신 게임 트리 위치 기준으로
+/// kata-analyze를 다시 건다. [resume_analysis_if_wanted]와 조건은 같지만("이 세션에
+/// 분석이 켜져 있길 원하는 상태였다면") 그쪽은 재연결이라는 다른 트리거를 위한 것 -
+/// 여기서는 어느 세션인지부터 state.analyzing_profile로 알아내야 해서 감싸는 계층이
+/// 하나 더 필요하다.
+///
+/// 루프 안(매 genmove 직후)이 아니라 루프가 끝난 뒤 딱 한 번만 여기서 부르는 이유:
+/// 흑/백 둘 다 엔진에 배정된 빠른 셀프플레이는 이 루프가 응답을 받는 즉시 다음
+/// genmove를 바로 이어 보낸다 - 그 사이 GameControls.svelte가 "board-updated"
+/// 이벤트를 받아 kata-analyze를 다시 거는 것은 별도의 왕복(이벤트 emit -> 프런트
+/// 이펙트 -> invoke -> 커맨드 -> send)이라 이 백엔드 루프 자체의 다음 genmove 전송보다
+/// 훨씬 느리다 - 그 결과 kata-analyze 명령이 실제로 와이어에 나가기도 전에 다음
+/// genmove가 먼저 나가 매번 그 자리에서 인터럽트되어 버려서(실제 GTP 규칙: 새 입력이
+/// 오면 스트리밍이 멈춘다), 서버로 빠른 셀프플레이를 돌리는 동안 분석/ownership이
+/// 단 한 줄도 도착하지 못하는 문제가 있었다(go_webui 세션에서 사용자가 직접 보고).
+/// 루프가 실제로 멈춘 뒤(=더 이상 아무도 새 명령으로 인터럽트하지 않는 시점)에 한
+/// 번만 걸면, 적어도 그 위치에 대해서는 결과를 확실히 받는다 - 프런트의 매 수 재시도
+/// 자체는 그대로 남겨둔다(사람이 느리게 두는 일반적인 경우엔 이게 더 빨리 반응하고,
+/// 여기서 한 번 더 걸어도 그저 살짝 이르게 재시작될 뿐 해가 되지 않는다).
+async fn resume_analysis_for_current_position(state: &AppState) {
+    let Some(profile_id) = state.analyzing_profile() else {
+        return;
+    };
+    let Some(session) = state.session_for_profile(&profile_id).await else {
+        return;
+    };
+    resume_analysis_if_wanted(state, &session).await;
 }

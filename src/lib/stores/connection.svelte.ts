@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { appErrorMessage } from "../appError";
 import { engineAssignmentStore } from "./engineAssignment.svelte";
+import { analysisEngineStore } from "./analysisEngine.svelte";
 
 export type ConnectionStatus =
   | "disconnected"
@@ -103,9 +104,10 @@ function createConnectionStore() {
     },
     async disconnect(profileId: string) {
       await invoke("disconnect_ssh", { profileId });
-      // 백엔드도 disconnect_ssh에서 이 프로필의 흑/백 배정을 풀지만, 그걸 알려주는
-      // 별도 이벤트가 없으므로 프런트 상태도 여기서 바로 맞춰준다.
+      // 백엔드도 disconnect_ssh에서 이 프로필의 흑/백 배정과 분석 엔진 지정을 풀지만,
+      // 그걸 알려주는 별도 이벤트가 없으므로 프런트 상태도 여기서 바로 맞춰준다.
       engineAssignmentStore.clearIfAssigned(profileId);
+      analysisEngineStore.clearIfAssigned(profileId);
     },
   };
 }

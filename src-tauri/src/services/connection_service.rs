@@ -71,6 +71,8 @@ impl<'a> ConnectionService<'a> {
         // 이 프로필이 흑/백 어느 쪽에 배정돼 있었든 풀어준다 - 연결이 끊긴 프로필이
         // 계속 배정된 채로 남아 그 색이 조용히 아무도 안 두는 상태가 되지 않도록.
         self.state.clear_engine_assignment_for(&profile_id);
+        // Analysis/Ownership 전용으로 지정해뒀던 프로필이었어도 마찬가지로 풀어준다.
+        self.state.clear_analysis_engine_for(&profile_id);
 
         if let Some(session) = session {
             session.disconnect().await;

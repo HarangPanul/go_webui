@@ -47,6 +47,8 @@
   "game.engineColor.human": "사람",
   "game.analysis": "분석(Analysis)",
   "game.ownership": "영역(Ownership)",
+  "game.analysisEngine": "분석 엔진",
+  "game.analysisEngineAuto": "자동",
   "game.captures": "따낸 돌",
   "settings.keybindings.title": "키보드 단축키",
   "settings.keybindings.pressKey": "키를 누르세요…",
