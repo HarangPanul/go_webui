@@ -139,9 +139,21 @@
 
 ---
 
-### **5. 프로젝트 디렉토리 구조**
+### **5. Android 온디바이스 엔진 아키텍처 (2026-09-08 추가)**
 
-Vite + Svelte 5(SvelteKit 미사용, 화면 수가 적어 상태 기반 화면 전환) + Tauri v2 구조로 스캐폴딩 완료.
+원격 SSH + `katago gtp`만 가정했던 초기 설계(§1, §2-나)에 더해, Android에서는 원격 서버 없이 **기기 안에서 직접 KataGo를 구동**하는 경로가 추가됐다.
+
+* **GTP 트랜스포트 추상화**: `GtpSession`(`src-tauri/src/gtp/process.rs`)은 `gtp::transport::GtpTransport` 트레잇 뒤에서 상대가 SSH 채널인지 로컬 엔진인지 모른다. 명령 큐잉/FIFO 매칭/kata-analyze 스트리밍 분리 같은 GTP 프로토콜 규칙만 처리하고, 실제 연결은 `ssh_transport.rs`(기존 원격 경로) 또는 `android_transport.rs`(신규 로컬 경로) 구현체가 담당한다.
+* **`plugins/tauri-plugin-katago-local/`**: Android 온디바이스 엔진을 `GtpTransport`로 연결하기 위한 자체 Tauri 모바일 플러그인. `desktop.rs`는 항상 `UnsupportedPlatform`을 반환하는 스텁(데스크톱 타깃도 컴파일은 되어야 메인 앱이 플랫폼 분기 없이 의존할 수 있음), `mobile.rs`가 실제 JNI 왕복을 담당.
+* **`plugins/android-engine/`**: Android 쪽 Gradle 모듈(`engine/`, `engine-native/` JNI·C++ 바인딩)과 KataGo 자체를 `.gitmodules`로 끌어온 서브모듈(`plugins/android-engine/katago` → `lightvector/KataGo`)로 구성.
+* **현재 단계**: 배선(Cargo 경로 의존성 → `gen/android` Gradle 자동 등록 → JNI 왕복) 자체를 ping 하나로 검증하는 수준이며, 실제 GTP 명령 셸(`boardsize`/`play`/`genmove`/`undo`/`kata-analyze`)은 이 배선이 실기기에서 검증된 뒤 추가 예정.
+* 프론트에서는 `stores/platform.svelte.ts`(Android 여부 캐시), `stores/analysisEngine.svelte.ts`/`engineAssignment.svelte.ts`(어느 프로필이 분석/각 색 착수를 맡을지), `stores/maxVisits.svelte.ts`(로컬 엔진 MCTS 시뮬레이션 수)가 이 경로를 지원.
+
+---
+
+### **6. 프로젝트 디렉토리 구조**
+
+Vite + Svelte 5(SvelteKit 미사용, 화면 수가 적어 상태 기반 화면 전환) + Tauri v2. 아래는 2026-09-08 기준 실제 구조(스캐폴딩 당시 트리에서 다수 확장/분리됨 — 특히 `stores/`가 4개→17개로 세분화, `services/`·Android 관련 모듈 신규 추가).
 
 ```
 go_webui/
@@ -155,25 +167,43 @@ go_webui/
 │       ├── components/
 │       │   ├── board/                # GoBoard, BoardCanvas, AnalysisOverlay, TerritoryOverlay
 │       │   ├── game/                 # GameControls, WinrateGraph
-│       │   └── settings/             # ServerProfileList/Form, SshKeyInput
-│       ├── stores/                   # board / analysis / connection / serverProfiles (.svelte.ts, $state)
+│       │   ├── settings/             # ServerProfileList/Form, SshKeyInput
+│       │   ├── common/               # 화면 공통 컴포넌트
+│       │   └── ui/                   # 디자인 시스템(tokens.css 기반) 컴포넌트
+│       ├── stores/                   # .svelte.ts, $state 기반. 관심사별로 세분화됨:
+│       │                             #   analysis / analysisEngine / connection / engineAssignment /
+│       │                             #   engineConnectPicker / gameResult / gameTree / gtp / instantMove /
+│       │                             #   keybindings / komi / locale / maxVisits / pendingCrosshair /
+│       │                             #   pendingMove / platform / serverProfiles / sshKeys
 │       ├── i18n/                     # en.json, ko.json, index.ts
-│       ├── types/                    # board, gtp, sgf, serverProfile
-│       └── utils/                    # sgf.ts (SGF import), goRules.ts (교체형 규칙 모듈)
+│       ├── types/                    # serverProfile.ts (board/gtp 타입은 삭제, generated/bindings.ts로 대체)
+│       ├── generated/                # bindings.ts — tauri-specta가 Rust 타입/커맨드에서 자동 생성
+│       ├── canvas/                   # 바둑판 캔버스 격자 유틸
+│       └── utils/                    # coords.ts, holdToRepeat.ts, rovingFocus.ts
 ├── static/                           # 정적 에셋
+├── scripts/                          # build-apk.sh, build-appimage.sh
 └── src-tauri/                        # Rust 백엔드
-    ├── Cargo.toml (russh, tokio 등), tauri.conf.json, capabilities/default.json
+    ├── Cargo.toml (russh, tokio, specta 등), tauri.conf.json, capabilities/default.json
+    ├── plugins/
+    │   ├── tauri-plugin-katago-local/  # Android 온디바이스 엔진 ↔ GtpTransport 연결 플러그인
+    │   └── android-engine/             # Gradle 모듈(engine, engine-native) + katago(git submodule)
+    ├── gen/android/                     # Tauri Android 프로젝트(Gradle) 생성물
     └── src/
         ├── main.rs, lib.rs, state.rs
-        ├── commands/                 # ssh.rs, gtp.rs, profile.rs (invoke 커맨드)
-        ├── ssh/                      # client.rs(russh 세션), keystore.rs(sandbox 저장)
-        ├── gtp/                      # process.rs(GTP 세션), parser.rs(kata-analyze 파싱)
-        └── models/                   # server_profile.rs, game_state.rs
+        ├── commands/                  # game.rs, gtp.rs, local_engine.rs, platform.rs, profile.rs, ssh.rs
+        ├── services/                  # connection_service.rs, engine_sync.rs, game_service.rs
+        │                              #   (state 위, commands 아래 계층 — game <-> gtp/state 순환 의존 방지)
+        ├── ssh/                       # client.rs(russh 세션), keystore.rs(sandbox 저장), local_keys.rs
+        ├── gtp/                       # process.rs(GtpSession), parser.rs(kata-analyze 파싱),
+        │                              #   transport.rs(트랜스포트 경계) + ssh_transport.rs/android_transport.rs,
+        │                              #   coords.rs, live_katago_tests.rs(#[ignore] 통합 테스트)
+        ├── game/                      # 바둑판 상태 + 게임 트리 + 따내기/활로 판정 (규칙의 단일 진실 공급원)
+        └── models/                    # server_profile.rs
 ```
 
-- 각 파일은 현재 시그니처/구조만 잡힌 skeleton(TODO 주석)이며 실제 로직은 Phase 1부터 채워나감.
-- `src-tauri/tauri.conf.json`의 `bundle.targets`는 `["appimage", "nsis"]`로 4번 결정사항(Windows `.exe`/Linux `.AppImage`) 반영. Android/추가 desktop target은 해당 과제 착수 시 `tauri android init` 등으로 확장.
-- Node/npm/Rust toolchain 설치 후 검증 완료: `npm install`, `npm run build`(vite), `svelte-check`, `cargo check`, `cargo fmt` 모두 정상 통과 (2026-09-01).
+- `src-tauri/tauri.conf.json`의 `bundle.targets`는 여전히 `["appimage", "nsis"]`(Windows `.exe`/Linux `.AppImage`, §4 결정사항 그대로). Android는 `tauri android init`으로 별도 `gen/android/`에 생성됨.
 - Linux 데스크탑 빌드에 필요한 시스템 라이브러리(`webkit2gtk-4.1`, `base-devel`, `appmenu-gtk-module`, `libappindicator-gtk3`, `librsvg` 등)를 pacman으로 설치해야 `cargo check`/`tauri dev`가 동작함 (Tauri v2 공식 Arch Linux 요구사항).
-- 아이콘: 현재 `src-tauri/icons/`에는 임시 placeholder PNG(32x32, 128x128, 128x128@2x, icon.png)만 있음. `icon.icns`(macOS)/`icon.ico`(Windows)는 실제 디자인 확정 후 추가 필요 — Windows/macOS 데스크탑 빌드 착수 전 선행 작업.
-- **Phase 2(SSH를 통한 원격 KataGo 엔진 연동) 구현 완료 (2026-09-01)**: 서버 프로필 CRUD(sandbox `profiles.json`), russh 기반 SSH 접속(in-memory key 인증, passphrase는 감지만 하고 1차 미지원), `katago gtp` 프로세스 exec, GTP 명령 큐/멀티라인 응답 프레이밍, kata-analyze 스트리밍 라인 파싱+이벤트 emit(오버레이 렌더링은 Phase 3), 무응답 시 10초 간격 재연결(`Notify` 기반 즉시 취소 가능) 전부 구현. Settings 화면에 프로필 등록/연결 UI + 임의 GTP 명령을 보내볼 수 있는 GTP 콘솔 추가. `cargo check`/`cargo fmt`/`cargo test`(parser 유닛 테스트)/`svelte-check`/`npm run build` 전부 통과 확인. **미검증**: 실제 SSH 서버 + katago 대상 end-to-end 연결(사용자가 준비하는 실서버 필요) — host key 검증(TOFU/known_hosts)은 아직 없어 모든 서버 키를 무조건 수락함(`ssh/client.rs`의 `check_server_key` TODO).
+- 아이콘: 현재 `src-tauri/icons/`에는 여전히 임시 placeholder PNG(32x32, 128x128, 128x128@2x, icon.png)만 있음. `icon.icns`(macOS)/`icon.ico`(Windows)는 실제 디자인 확정 후 추가 필요 — Windows/macOS 데스크탑 빌드 착수 전 선행 작업.
+- SSH host key 검증(TOFU/known_hosts)은 아직 없어 모든 서버 키를 무조건 수락함(`ssh/client.rs`의 `check_server_key` TODO) — 미해결로 남아있음.
+- **Phase 2(SSH를 통한 원격 KataGo 엔진 연동) 구현 완료 (2026-09-01)**: 서버 프로필 CRUD(sandbox `profiles.json`), russh 기반 SSH 접속(in-memory key 인증, passphrase는 감지만 하고 1차 미지원), `katago gtp` 프로세스 exec, GTP 명령 큐/멀티라인 응답 프레이밍, kata-analyze 스트리밍 라인 파싱+이벤트 emit, 무응답 시 10초 간격 재연결(`Notify` 기반 즉시 취소 가능).
+- **이후 진행 (~2026-09-08)**: `state`/`services`/`commands` 계층 분리(구조 재작성 1~9단계), 프론트 스토어 세분화, 디자인 시스템 토큰 추출, tauri-specta로 Rust↔TS 타입 자동 생성(`generated/bindings.ts`), GTP 트랜스포트를 SSH/Android로 추상화하고 Android 온디바이스 엔진 배선 추가(§5), kata-analyze 스트리밍 버그 수정 + 분석 전용 엔진 선택 기능. **미검증**: 실제 SSH 서버 + KataGo 대상 end-to-end 연결(사용자가 준비하는 실서버 필요), Android 온디바이스 엔진의 실기기 GTP 명령 셸.
