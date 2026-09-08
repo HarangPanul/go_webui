@@ -25,6 +25,18 @@ pub enum AppError {
     #[error("{0}")]
     SshAuthFailed(String),
 
+    #[error(
+        "서버({host})가 제시한 SSH host key가 이전에 저장해둔 지문과 다릅니다. \
+         서버를 재설치했거나 IP를 재할당받았다면 설정 화면에서 이 프로필의 host key 신뢰를 \
+         초기화한 뒤 다시 연결하세요. 그런 적이 없다면 중간자 공격(MITM)일 수 있으니 연결하지 마세요. \
+         (이전 지문: {expected}, 지금 지문: {actual})"
+    )]
+    HostKeyMismatch {
+        host: String,
+        expected: String,
+        actual: String,
+    },
+
     #[error("passphrase가 걸린 key는 아직 지원하지 않습니다. passphrase 없는 key를 사용해주세요.")]
     PassphraseUnsupported,
 
@@ -52,6 +64,7 @@ impl AppError {
             AppError::NotConnected => "NotConnected",
             AppError::SshConnectFailed(_) => "SshConnectFailed",
             AppError::SshAuthFailed(_) => "SshAuthFailed",
+            AppError::HostKeyMismatch { .. } => "HostKeyMismatch",
             AppError::PassphraseUnsupported => "PassphraseUnsupported",
             AppError::GtpSendFailed(_) => "GtpSendFailed",
             AppError::ProfileNotFound(_) => "ProfileNotFound",

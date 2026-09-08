@@ -44,8 +44,7 @@ fn read_store(app: &AppHandle) -> Result<ProfileStore, AppError> {
     if text.trim().is_empty() {
         return Ok(ProfileStore::default());
     }
-    serde_json::from_str(&text)
-        .map_err(|e| AppError::Other(format!("프로필 파일 파싱 실패: {e}")))
+    serde_json::from_str(&text).map_err(|e| AppError::Other(format!("프로필 파일 파싱 실패: {e}")))
 }
 
 fn write_store(app: &AppHandle, store: &ProfileStore) -> Result<(), AppError> {
@@ -103,6 +102,7 @@ pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, A
             private_key: String::new(),
             has_passphrase: false,
             engine_command: String::new(),
+            host_key_fingerprint: None,
         },
         ProfileKind::Ssh => {
             let (private_key, has_passphrase) = if input.private_key.is_empty() {
@@ -121,6 +121,16 @@ pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, A
                 )
             };
 
+            // host key 지문은 host/port가 그대로인 수정(이름 변경 등)이면 계속 신뢰를
+            // 유지하고, host/port가 바뀌면(다른 서버를 가리키게 됨) 새로 TOFU해야
+            // 하므로 지운다. 신규 생성이면 당연히 None.
+            let host_key_fingerprint = match &existing {
+                Some(existing) if existing.host == input.host && existing.port == input.port => {
+                    existing.host_key_fingerprint.clone()
+                }
+                _ => None,
+            };
+
             ServerProfile {
                 id: id.clone(),
                 name: input.name,
@@ -131,6 +141,7 @@ pub fn save(app: &AppHandle, input: SaveProfileInput) -> Result<ServerProfile, A
                 private_key,
                 has_passphrase,
                 engine_command: input.engine_command,
+                host_key_fingerprint,
             }
         }
     };
@@ -150,6 +161,25 @@ pub fn delete(app: &AppHandle, id: &str) -> Result<(), AppError> {
     if store.active_profile_id.as_deref() == Some(id) {
         store.active_profile_id = None;
     }
+    write_store(app, &store)
+}
+
+/// TOFU 첫 연결에서 확인한 host key 지문을 프로필에 저장(`ssh/client.rs`가 연결
+/// 직후 호출)하거나, `fingerprint`가 `None`이면 저장된 신뢰를 초기화(설정 화면의
+/// "host key 신뢰 초기화" 버튼용 - 서버를 재설치해 host key가 정말로 바뀐 경우
+/// 다음 연결을 다시 TOFU로 받아들이게 함)한다.
+pub fn set_host_key_fingerprint(
+    app: &AppHandle,
+    id: &str,
+    fingerprint: Option<String>,
+) -> Result<(), AppError> {
+    let mut store = read_store(app)?;
+    let profile = store
+        .profiles
+        .iter_mut()
+        .find(|p| p.id == id)
+        .ok_or_else(|| AppError::ProfileNotFound(id.to_string()))?;
+    profile.host_key_fingerprint = fingerprint;
     write_store(app, &store)
 }
 

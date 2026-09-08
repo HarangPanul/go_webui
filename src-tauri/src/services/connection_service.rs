@@ -47,7 +47,7 @@ impl<'a> ConnectionService<'a> {
 
         let id = profile.id.clone();
         let transport: Arc<dyn GtpTransport> = match profile.kind {
-            ProfileKind::Ssh => Arc::new(SshTransport::new(profile)),
+            ProfileKind::Ssh => Arc::new(SshTransport::new(app.clone(), profile)),
             ProfileKind::Local => Arc::new(AndroidLocalTransport::new(app.clone(), id.clone())),
         };
         let session = GtpSession::connect(app, transport).await?;

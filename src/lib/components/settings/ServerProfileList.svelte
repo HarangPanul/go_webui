@@ -42,6 +42,11 @@
   async function handleDisconnect(id: string) {
     await connectionStore.disconnect(id);
   }
+
+  async function handleForgetHostKey(id: string) {
+    if (!confirm(t("settings.forgetHostKeyConfirm"))) return;
+    await serverProfilesStore.forgetHostKey(id);
+  }
 </script>
 
 <ul class="server-profile-list">
@@ -84,6 +89,11 @@
           <Button onclick={() => serverProfilesStore.startEdit(profile)}>
             {t("settings.edit")}
           </Button>
+          {#if profile.kind === "ssh" && profile.hasTrustedHostKey}
+            <Button onclick={() => handleForgetHostKey(profile.id)}>
+              {t("settings.forgetHostKey")}
+            </Button>
+          {/if}
           <Button variant="danger" onclick={() => serverProfilesStore.remove(profile.id)}>
             {t("settings.delete")}
           </Button>

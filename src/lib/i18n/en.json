@@ -24,6 +24,8 @@
   "settings.cancelEdit": "Cancel",
   "settings.sshKeyEditHint": "Leave blank to keep the existing key",
   "settings.passphraseWarning": "Passphrase-protected keys are not supported yet",
+  "settings.forgetHostKey": "Forget host key",
+  "settings.forgetHostKeyConfirm": "Forget the trusted SSH host key for this profile? Only do this if you reinstalled/replaced the server — the next connection will trust whatever key it presents.",
   "settings.sshKeyDetected": "Detected local keys (~/.ssh)",
   "settings.sshKeyDetectPlaceholder": "Select a key to load…",
   "settings.language": "Language",

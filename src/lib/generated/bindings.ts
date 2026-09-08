@@ -80,6 +80,13 @@ export const commands = {
 	saveProfile: (input: SaveProfileInput) => __TAURI_INVOKE<ServerProfileInfo>("save_profile", { input }),
 	deleteProfile: (id: string) => __TAURI_INVOKE<null>("delete_profile", { id }),
 	switchProfile: (profileId: string) => __TAURI_INVOKE<null>("switch_profile", { profileId }),
+	/**
+	 *  저장된 SSH host key 신뢰(TOFU 지문)를 초기화한다. 서버를 재설치해 host key가
+	 *  정말로 바뀐 경우 이걸 눌러야 다음 연결이 HostKeyMismatch로 거부되지 않고 새
+	 *  지문을 다시 TOFU로 신뢰한다 - ssh/client.rs::ClientHandler, gtp/ssh_transport.rs
+	 *  참고.
+	 */
+	forgetHostKeyFingerprint: (id: string) => __TAURI_INVOKE<null>("forget_host_key_fingerprint", { id }),
 	getBoardState: () => __TAURI_INVOKE<BoardSnapshot>("get_board_state"),
 	confirmMove: (x: number, y: number) => __TAURI_INVOKE<BoardSnapshot>("confirm_move", { x, y }),
 	passMove: () => __TAURI_INVOKE<BoardSnapshot>("pass_move"),
@@ -232,6 +239,12 @@ export type ServerProfileInfo = {
 	username: string,
 	engineCommand: string,
 	hasPassphrase: boolean,
+	/**
+	 *  이 프로필로 이전에 한 번 이상 연결해서 host key 지문을 이미 저장해뒀는지 -
+	 *  true면 설정 화면이 "host key 신뢰 초기화" 버튼을 보여줄 수 있다. 실제 지문
+	 *  값 자체는 검증 외 용도로 쓸 일이 없어 프론트로 내려보내지 않는다.
+	 */
+	hasTrustedHostKey: boolean,
 };
 
 export type StatusPayload = {

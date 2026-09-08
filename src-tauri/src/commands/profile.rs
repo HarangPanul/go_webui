@@ -33,3 +33,13 @@ pub async fn delete_profile(app: AppHandle, id: String) -> Result<(), AppError> 
 pub async fn switch_profile(app: AppHandle, profile_id: String) -> Result<(), AppError> {
     keystore::set_active(&app, &profile_id)
 }
+
+/// 저장된 SSH host key 신뢰(TOFU 지문)를 초기화한다. 서버를 재설치해 host key가
+/// 정말로 바뀐 경우 이걸 눌러야 다음 연결이 HostKeyMismatch로 거부되지 않고 새
+/// 지문을 다시 TOFU로 신뢰한다 - ssh/client.rs::ClientHandler, gtp/ssh_transport.rs
+/// 참고.
+#[tauri::command]
+#[specta::specta]
+pub async fn forget_host_key_fingerprint(app: AppHandle, id: String) -> Result<(), AppError> {
+    keystore::set_host_key_fingerprint(&app, &id, None)
+}

@@ -3,7 +3,7 @@
 // 이 레이어의 책임이 아니라 gtp/process.rs가 담당한다.
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use russh::client::{self, Handle};
@@ -31,9 +31,28 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// reconnect_loop(gtp/process.rs)이 정상적으로 재연결을 재시도하게 된다.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 
-/// russh client::Handler 구현체. 지금은 인증 배너/채널 이벤트를 별도로 처리할 필요가
-/// 없어 상태 없는 unit struct.
-pub struct ClientHandler;
+/// russh client::Handler 구현체. TOFU(Trust On First Use) 방식으로 host key를
+/// 검증한다 - `expected_fingerprint`가 없으면(이 프로필로 처음 연결) 서버가 제시하는
+/// 키를 무조건 수락하고, 있으면 그 지문과 정확히 일치할 때만 수락한다. 서버가 실제로
+/// 제시한 지문은 결과(accept/reject 무관)에 관계없이 `observed_fingerprint`에 항상
+/// 남겨둔다 - 거부된 경우에도 호출자가 "지금 서버가 제시한 지문이 뭐였는지"를
+/// 에러 메시지에 담아 보여줄 수 있어야 하기 때문(SshSession::connect 참고).
+pub struct ClientHandler {
+    expected_fingerprint: Option<String>,
+    observed_fingerprint: Arc<StdMutex<Option<String>>>,
+}
+
+impl ClientHandler {
+    fn new(
+        expected_fingerprint: Option<String>,
+        observed_fingerprint: Arc<StdMutex<Option<String>>>,
+    ) -> Self {
+        ClientHandler {
+            expected_fingerprint,
+            observed_fingerprint,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl client::Handler for ClientHandler {
@@ -41,12 +60,21 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
+        server_public_key: &russh_keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // TODO(보안 하드닝): host key 검증(known_hosts / TOFU)이 아직 없어 모든 서버 키를
-        // 무조건 수락한다. MITM 방지가 필요해지면 이 지점에서 프로필별로 저장된 지문과
-        // 비교하도록 구현.
-        Ok(true)
+        let fingerprint = format!("SHA256:{}", server_public_key.fingerprint());
+        *self
+            .observed_fingerprint
+            .lock()
+            .expect("observed_fingerprint mutex poisoned") = Some(fingerprint.clone());
+
+        match &self.expected_fingerprint {
+            // 이 프로필로 처음 연결 - 지금 받은 지문을 그대로 신뢰(TOFU)한다. 실제
+            // 저장은 이 연결이 완전히 성공한 뒤 SshTransport가 담당(중간에 인증 등
+            // 다른 이유로 실패할 수도 있으므로 여기서 바로 저장하지 않음).
+            None => Ok(true),
+            Some(expected) => Ok(*expected == fingerprint),
+        }
     }
 }
 
@@ -57,6 +85,12 @@ pub struct SshSession {
     pub handle: Handle<ClientHandler>,
     pub channel: russh::Channel<client::Msg>,
     pub writer: Pin<Box<dyn AsyncWrite + Send>>,
+    /// 이번 연결에서 서버가 실제로 제시한 host key의 SHA256 지문. 이 값이 나왔다는
+    /// 건 check_server_key가 이미 수락했다는 뜻(불일치면 connect() 자체가
+    /// HostKeyMismatch로 실패해 이 구조체가 만들어지지 않음) - 처음 연결(TOFU)이라
+    /// 아직 프로필에 저장되지 않은 지문일 수 있으므로 호출자(SshTransport)가 필요하면
+    /// 이 값을 keystore에 저장한다.
+    pub host_key_fingerprint: String,
 }
 
 impl SshSession {
@@ -66,6 +100,7 @@ impl SshSession {
         username: &str,
         private_key: &str,
         engine_command: &str,
+        known_fingerprint: Option<&str>,
     ) -> Result<Self, AppError> {
         let key_pair = russh_keys::decode_secret_key(private_key, None)
             .map_err(|e| AppError::SshAuthFailed(format!("SSH key 디코딩 실패: {e}")))?;
@@ -74,13 +109,43 @@ impl SshSession {
             keepalive_interval: Some(KEEPALIVE_INTERVAL),
             ..Default::default()
         });
-        let mut handle = tokio::time::timeout(
+        let observed_fingerprint: Arc<StdMutex<Option<String>>> = Arc::new(StdMutex::new(None));
+        let handler = ClientHandler::new(
+            known_fingerprint.map(str::to_string),
+            observed_fingerprint.clone(),
+        );
+        let connect_result = tokio::time::timeout(
             CONNECT_TIMEOUT,
-            client::connect(config, (host, port), ClientHandler),
+            client::connect(config, (host, port), handler),
         )
         .await
-        .map_err(|_| AppError::SshConnectFailed(format!("SSH 연결 시간 초과({host}:{port})")))?
-        .map_err(|e| AppError::SshConnectFailed(format!("SSH 연결 실패({host}:{port}): {e}")))?;
+        .map_err(|_| AppError::SshConnectFailed(format!("SSH 연결 시간 초과({host}:{port})")))?;
+
+        let mut handle = match connect_result {
+            Ok(handle) => handle,
+            Err(russh::Error::UnknownKey) => {
+                let actual = observed_fingerprint
+                    .lock()
+                    .expect("observed_fingerprint mutex poisoned")
+                    .clone()
+                    .unwrap_or_default();
+                return Err(AppError::HostKeyMismatch {
+                    host: format!("{host}:{port}"),
+                    expected: known_fingerprint.unwrap_or("").to_string(),
+                    actual,
+                });
+            }
+            Err(e) => {
+                return Err(AppError::SshConnectFailed(format!(
+                    "SSH 연결 실패({host}:{port}): {e}"
+                )))
+            }
+        };
+        let host_key_fingerprint = observed_fingerprint
+            .lock()
+            .expect("observed_fingerprint mutex poisoned")
+            .clone()
+            .unwrap_or_default();
 
         let authenticated = handle
             .authenticate_publickey(username, Arc::new(key_pair))
@@ -107,7 +172,9 @@ impl SshSession {
         channel
             .exec(true, login_shell_command.as_str())
             .await
-            .map_err(|e| AppError::SshConnectFailed(format!("엔진 명령 실행 실패({engine_command}): {e}")))?;
+            .map_err(|e| {
+                AppError::SshConnectFailed(format!("엔진 명령 실행 실패({engine_command}): {e}"))
+            })?;
 
         let writer: Pin<Box<dyn AsyncWrite + Send>> = Box::pin(channel.make_writer());
 
@@ -115,6 +182,7 @@ impl SshSession {
             handle,
             channel,
             writer,
+            host_key_fingerprint,
         })
     }
 }

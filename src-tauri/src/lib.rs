@@ -9,7 +9,7 @@ mod state;
 
 use state::AppState;
 
-/// 21개 커맨드 + (커맨드 시그니처에 나타나지 않는) 이벤트 payload 타입들을 모아
+/// 아래 커맨드 전부 + (커맨드 시그니처에 나타나지 않는) 이벤트 payload 타입들을 모아
 /// TypeScript 바인딩(src/lib/generated/bindings.ts)을 만드는 tauri-specta 설정.
 /// run()과 디버그 빌드 전용 export 양쪽에서 써야 해서(둘 다 &self만 빌림, Builder가
 /// Clone이라 소유권 문제도 없음) 별도 함수로 뺐다.
@@ -40,6 +40,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::profile::save_profile,
             commands::profile::delete_profile,
             commands::profile::switch_profile,
+            commands::profile::forget_host_key_fingerprint,
             commands::game::get_board_state,
             commands::game::confirm_move,
             commands::game::pass_move,

@@ -2,8 +2,10 @@
 // (ChannelMessage::Data/ExtendedData/ExitStatus/Eof/Close을 줄 단위 TransportEvent로
 // 변환하는 것)과 재연결 정책(고정 간격 재시도)은 전부 SSH 고유의 세부사항이라 여기
 // 갇혀 있고, gtp/process.rs(GtpSession)는 이 파일의 존재를 몰라도 된다.
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
+use tauri::AppHandle;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use crate::error::AppError;
@@ -12,6 +14,7 @@ use crate::gtp::transport::{
 };
 use crate::models::server_profile::ServerProfile;
 use crate::ssh::client::{Channel, ChannelMessage, ClientHandler, SshSession};
+use crate::ssh::keystore;
 
 /// 재연결 시도 간격.
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
@@ -21,12 +24,23 @@ const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
 const STDERR_DIAG_LIMIT: usize = 2000;
 
 pub struct SshTransport {
+    app: AppHandle,
     profile: ServerProfile,
+    /// host key 신뢰 기준 지문. `profile.host_key_fingerprint`로 초기화되지만, 이후
+    /// TOFU로 새로 확정된 지문은 여기 캐시해서 같은 프로세스 안의 재연결
+    /// (reconnect_loop)에서도 곧바로 비교 대상으로 쓴다 - `profile`은 이 트랜스포트가
+    /// 생성될 때의 스냅샷이라 disk에 저장해도 저절로 갱신되지 않기 때문.
+    known_fingerprint: StdMutex<Option<String>>,
 }
 
 impl SshTransport {
-    pub fn new(profile: ServerProfile) -> Self {
-        SshTransport { profile }
+    pub fn new(app: AppHandle, profile: ServerProfile) -> Self {
+        let known_fingerprint = StdMutex::new(profile.host_key_fingerprint.clone());
+        SshTransport {
+            app,
+            profile,
+            known_fingerprint,
+        }
     }
 }
 
@@ -37,14 +51,43 @@ impl GtpTransport for SshTransport {
     }
 
     async fn open(&self) -> Result<OpenTransport, AppError> {
+        let expected_fingerprint = self
+            .known_fingerprint
+            .lock()
+            .expect("known_fingerprint mutex poisoned")
+            .clone();
+
         let ssh = SshSession::connect(
             &self.profile.host,
             self.profile.port,
             &self.profile.username,
             &self.profile.private_key,
             &self.profile.engine_command,
+            expected_fingerprint.as_deref(),
         )
         .await?;
+
+        if expected_fingerprint.is_none() {
+            // TOFU: 이 프로필로 처음 연결하는 것이었다면 지금 확인한 지문을 이후
+            // 재연결 비교 기준으로 캐시하고, 디스크에도 영속화해 다음 앱 실행에서도
+            // 계속 신뢰하도록 한다. 저장 실패(디스크 문제 등)는 이번 연결 자체를
+            // 막을 이유가 없어 best-effort로 로그만 남긴다.
+            *self
+                .known_fingerprint
+                .lock()
+                .expect("known_fingerprint mutex poisoned") =
+                Some(ssh.host_key_fingerprint.clone());
+            if let Err(e) = keystore::set_host_key_fingerprint(
+                &self.app,
+                &self.profile.id,
+                Some(ssh.host_key_fingerprint.clone()),
+            ) {
+                eprintln!(
+                    "host key 지문 저장 실패(연결은 계속 진행, profile={}): {e}",
+                    self.profile.id
+                );
+            }
+        }
 
         let (tx, rx) = mpsc::unbounded_channel();
         spawn_channel_pump(ssh.channel, tx);

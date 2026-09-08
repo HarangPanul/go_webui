@@ -13,6 +13,10 @@ export interface ServerProfile {
   engineCommand: string;
   // Key 원문은 프론트에 보관하지 않음 (Rust sandbox storage에서 관리)
   hasPassphrase: boolean;
+  // TOFU 방식 SSH host key 검증에서 지문을 이미 한 번 신뢰해 저장해뒀는지. true일 때만
+  // "host key 신뢰 초기화" 버튼을 보여줄 수 있다(ssh::client::ClientHandler 참고).
+  // kind가 "local"이면 항상 false.
+  hasTrustedHostKey: boolean;
 }
 
 // 프로필 등록/수정 폼 입력값. id가 없으면 신규 생성, 있으면 기존 프로필을 덮어씀.

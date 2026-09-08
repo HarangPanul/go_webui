@@ -31,6 +31,14 @@ pub struct ServerProfile {
     /// 파일 경로가 필요하면 사용자가 직접 붙여서 커스터마이즈 (예:
     /// "katago gtp -model model.bin.gz -config gtp.cfg"). kind가 Local이면 쓰이지 않음.
     pub engine_command: String,
+    /// TOFU(Trust On First Use) 방식 SSH host key 검증에 쓰는, 처음 연결했을 때 서버가
+    /// 제시한 host key의 SHA256 지문("SHA256:..." 형식). None이면 아직 한 번도
+    /// 연결한 적이 없어 다음 연결 시 무조건 신뢰하고 저장한다(ssh::client::ClientHandler
+    /// 참고). Some이면 이후 연결마다 서버가 제시하는 지문과 비교해서 다르면 거부한다 -
+    /// 값이 바뀌었다는 건 서버가 재설치됐거나 중간자 공격(MITM)일 수 있다는 뜻.
+    /// 기존에 저장된 프로필(이 필드가 생기기 전)을 읽을 때는 없는 것으로 취급.
+    #[serde(default)]
+    pub host_key_fingerprint: Option<String>,
 }
 
 fn default_engine_command() -> String {
@@ -73,6 +81,10 @@ pub struct ServerProfileInfo {
     pub username: String,
     pub engine_command: String,
     pub has_passphrase: bool,
+    /// 이 프로필로 이전에 한 번 이상 연결해서 host key 지문을 이미 저장해뒀는지 -
+    /// true면 설정 화면이 "host key 신뢰 초기화" 버튼을 보여줄 수 있다. 실제 지문
+    /// 값 자체는 검증 외 용도로 쓸 일이 없어 프론트로 내려보내지 않는다.
+    pub has_trusted_host_key: bool,
 }
 
 impl From<&ServerProfile> for ServerProfileInfo {
@@ -86,6 +98,7 @@ impl From<&ServerProfile> for ServerProfileInfo {
             username: p.username.clone(),
             engine_command: p.engine_command.clone(),
             has_passphrase: p.has_passphrase,
+            has_trusted_host_key: p.host_key_fingerprint.is_some(),
         }
     }
 }

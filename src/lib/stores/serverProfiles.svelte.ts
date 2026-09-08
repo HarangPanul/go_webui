@@ -60,6 +60,16 @@ function createServerProfilesStore() {
       await invoke("switch_profile", { profileId: id });
       activeProfileId = id;
     },
+    // 서버를 재설치/교체해서 host key가 정말로 바뀐 경우에만 쓰는 탈출구 - 다음
+    // 연결부터 서버가 제시하는 키를 다시 무조건 신뢰(TOFU)하게 된다
+    // (ssh::client::ClientHandler, commands::profile::forget_host_key_fingerprint 참고).
+    async forgetHostKey(id: string) {
+      await invoke("forget_host_key_fingerprint", { id });
+      const idx = profiles.findIndex((p) => p.id === id);
+      if (idx >= 0) {
+        profiles[idx] = { ...profiles[idx], hasTrustedHostKey: false };
+      }
+    },
     startEdit(profile: ServerProfile) {
       editingProfile = profile;
     },
