@@ -19,7 +19,9 @@ function createEngineAssignmentStore() {
   let assignment = $state<EngineAssignment>({ black: null, white: null });
 
   // 앱 시작 시 Rust 쪽 배정 상태를 한 번 가져와 동기화
-  invoke<EngineAssignment>("get_engine_assignment").then((a) => (assignment = a));
+  invoke<EngineAssignment>("get_engine_assignment")
+    .then((a) => (assignment = a))
+    .catch((e) => console.error("get_engine_assignment 초기 동기화 실패:", e));
 
   return {
     // 흑/백 각각에 배정된 프로필 id(없으면 null) - GameControls의 드롭다운 선택값,

@@ -66,7 +66,9 @@ function createGameTreeStore() {
   let snapshot = $state<BoardSnapshot>(emptySnapshot());
 
   // 앱 시작 시 Rust 쪽 게임 트리의 현재 상태를 한 번 가져와 동기화
-  invoke<BoardSnapshot>("get_board_state").then((s) => (snapshot = s));
+  invoke<BoardSnapshot>("get_board_state")
+    .then((s) => (snapshot = s))
+    .catch((e) => console.error("get_board_state 초기 동기화 실패:", e));
 
   // 흑/백이 둘 다 켜져 있으면 백엔드가 사람 턴이 될 때까지(또는 pass/resign) 여러 수를
   // 연달아 자동으로 두므로, confirmMove() 호출 하나의 반환값만 기다리면 그 사이 수들이

@@ -7,7 +7,9 @@ import { invoke } from "@tauri-apps/api/core";
 function createPlatformStore() {
   let supportsLocalEngine = $state(false);
 
-  invoke<boolean>("supports_local_engine").then((v) => (supportsLocalEngine = v));
+  invoke<boolean>("supports_local_engine")
+    .then((v) => (supportsLocalEngine = v))
+    .catch((e) => console.error("supports_local_engine 초기 동기화 실패:", e));
 
   return {
     get supportsLocalEngine() {

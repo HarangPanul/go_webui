@@ -64,7 +64,9 @@ function createConnectionStore() {
       const color =
         assignment.black === profileId ? "black" : assignment.white === profileId ? "white" : null;
       if (color) {
-        invoke("set_engine_assignment", { color, profileId }).catch(() => {});
+        invoke("set_engine_assignment", { color, profileId }).catch((e) =>
+          console.error(`재연결 후 ${color} 자동 응수 재배정 실패 (profileId=${profileId}):`, e),
+        );
       }
     }
   });

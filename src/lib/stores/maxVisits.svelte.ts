@@ -13,7 +13,9 @@ function createMaxVisitsStore() {
   let maxVisits = $state(DEFAULT_MAX_VISITS);
 
   // 앱 시작 시 백엔드에 저장된 현재 값을 한 번 가져와 동기화
-  invoke<number>("get_max_visits").then((v) => (maxVisits = v));
+  invoke<number>("get_max_visits")
+    .then((v) => (maxVisits = v))
+    .catch((e) => console.error("get_max_visits 초기 동기화 실패:", e));
 
   return {
     get value() {

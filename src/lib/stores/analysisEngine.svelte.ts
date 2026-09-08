@@ -16,7 +16,9 @@ function createAnalysisEngineStore() {
   let profileId = $state<string | null>(null);
 
   // 앱 시작 시 Rust 쪽 상태를 한 번 가져와 동기화
-  invoke<string | null>("get_analysis_engine").then((id) => (profileId = id));
+  invoke<string | null>("get_analysis_engine")
+    .then((id) => (profileId = id))
+    .catch((e) => console.error("get_analysis_engine 초기 동기화 실패:", e));
 
   return {
     // 지정된 게 없으면 null(자동 선택) - GameControls의 드롭다운 선택값.

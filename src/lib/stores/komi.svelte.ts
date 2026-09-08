@@ -10,7 +10,9 @@ function createKomiStore() {
   let komi = $state(DEFAULT_KOMI);
 
   // 앱 시작 시 백엔드에 저장된 현재 값을 한 번 가져와 동기화
-  invoke<number>("get_komi").then((k) => (komi = k));
+  invoke<number>("get_komi")
+    .then((k) => (komi = k))
+    .catch((e) => console.error("get_komi 초기 동기화 실패:", e));
 
   return {
     get value() {
