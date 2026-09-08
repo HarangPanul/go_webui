@@ -134,7 +134,10 @@ impl AppState {
 
     /// [`session_for_color`]와 같지만 그 세션의 profile_id도 함께 돌려준다(용도는
     /// [`any_session_with_id`]와 동일).
-    pub async fn session_for_color_with_id(&self, color: Color) -> Option<(String, Arc<GtpSession>)> {
+    pub async fn session_for_color_with_id(
+        &self,
+        color: Color,
+    ) -> Option<(String, Arc<GtpSession>)> {
         let profile_id = {
             let assignment = self.engine_assignment.lock().unwrap();
             assignment.profile_for(color).map(|id| id.to_string())

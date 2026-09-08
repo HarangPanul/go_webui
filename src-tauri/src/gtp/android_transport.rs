@@ -137,7 +137,8 @@ impl AsyncWrite for LocalWriter {
             let channel = this.analysis_channel.clone();
             tokio::spawn(async move {
                 let result = tokio::task::spawn_blocking(move || {
-                    app.katago_local().gtp_line(GtpLineRequest { line, channel })
+                    app.katago_local()
+                        .gtp_line(GtpLineRequest { line, channel })
                 })
                 .await;
 

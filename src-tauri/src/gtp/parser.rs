@@ -241,7 +241,8 @@ mod tests {
     fn unknown_field_with_multiple_value_tokens_does_not_swallow_following_fields() {
         // pvVisits류 리스트 필드를 흉내(여러 토큰짜리 값) - "값 하나"만 건너뛰면 남은
         // 토큰들이 다음 필드(winrate)의 key/value로 잘못 소비된다.
-        let line = "info move Q16 visits 123 pvVisits 10 8 6 4 winrate 0.54 scoreLead 1.2 pv Q16 D4";
+        let line =
+            "info move Q16 visits 123 pvVisits 10 8 6 4 winrate 0.54 scoreLead 1.2 pv Q16 D4";
         let result = parse_kata_analyze(line).expect("should parse");
         let c = &result.candidates[0];
         assert_eq!(c.visits, 123);
@@ -259,9 +260,6 @@ mod tests {
         assert_eq!(result.candidates.len(), 2);
         assert_eq!(result.candidates[0].pv, vec!["Q16", "D4"]);
         assert_eq!(result.candidates[1].pv, vec!["D4", "Q16"]);
-        assert_eq!(
-            result.ownership,
-            Some(vec![0.1, -0.2, 0.05, -1.0, 1.0])
-        );
+        assert_eq!(result.ownership, Some(vec![0.1, -0.2, 0.05, -1.0, 1.0]));
     }
 }

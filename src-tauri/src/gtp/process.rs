@@ -108,13 +108,15 @@ pub struct GtpSession {
 }
 
 impl GtpSession {
-    pub async fn connect(app: AppHandle, transport: Arc<dyn GtpTransport>) -> Result<Self, AppError> {
+    pub async fn connect(
+        app: AppHandle,
+        transport: Arc<dyn GtpTransport>,
+    ) -> Result<Self, AppError> {
         emit_status(&app, transport.profile_id(), "connecting", None);
 
-        let opened = transport
-            .open()
-            .await
-            .inspect_err(|e| emit_status(&app, transport.profile_id(), "error", Some(e.to_string())))?;
+        let opened = transport.open().await.inspect_err(|e| {
+            emit_status(&app, transport.profile_id(), "error", Some(e.to_string()))
+        })?;
 
         let inner = Arc::new(Inner {
             app: app.clone(),
@@ -194,8 +196,9 @@ impl GtpSession {
             }
         }
 
-        rx.await
-            .map_err(|_| AppError::GtpSendFailed("연결이 끊겨 응답을 받지 못했습니다".to_string()))?
+        rx.await.map_err(|_| {
+            AppError::GtpSendFailed("연결이 끊겨 응답을 받지 못했습니다".to_string())
+        })?
     }
 
     pub async fn disconnect(&self) {
@@ -210,7 +213,12 @@ impl GtpSession {
             handle.close().await;
         }
 
-        emit_status(&self.inner.app, self.inner.transport.profile_id(), "disconnected", None);
+        emit_status(
+            &self.inner.app,
+            self.inner.transport.profile_id(),
+            "disconnected",
+            None,
+        );
     }
 }
 
@@ -238,7 +246,12 @@ fn spawn_reader(inner: Arc<Inner>, mut lines: mpsc::UnboundedReceiver<TransportE
             return;
         }
 
-        emit_status(&inner.app, inner.transport.profile_id(), "reconnecting", Some(close_reason));
+        emit_status(
+            &inner.app,
+            inner.transport.profile_id(),
+            "reconnecting",
+            Some(close_reason),
+        );
         reconnect_loop(inner).await;
     });
 }
@@ -347,7 +360,12 @@ async fn reconnect_loop(inner: Arc<Inner>) {
                 // 매 시도 실패 이유를 그대로 버리지 않고 다시 emit - 그래야
                 // "reconnecting" 상태에서 멈춰 있을 때 왜 계속 실패하는지(예: engine
                 // 명령 자체가 잘못됨) 사용자가 알 수 있다.
-                emit_status(&inner.app, inner.transport.profile_id(), "reconnecting", Some(e.to_string()));
+                emit_status(
+                    &inner.app,
+                    inner.transport.profile_id(),
+                    "reconnecting",
+                    Some(e.to_string()),
+                );
                 continue;
             }
         }

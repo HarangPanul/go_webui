@@ -16,7 +16,9 @@ pub async fn connect_ssh(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<(), AppError> {
-    ConnectionService::new(&state).connect(app, profile_id).await
+    ConnectionService::new(&state)
+        .connect(app, profile_id)
+        .await
 }
 
 #[tauri::command]

@@ -39,7 +39,10 @@ pub async fn send_gtp_command(
 /// profile_id도 함께 돌려준다 - start_kata_analyze가 이걸 state.set_analyzing_profile로
 /// 기록해둬야, 그 사이 배정/차례가 바뀌어도 stop_kata_analyze가 (다시 계산하지 않고)
 /// 정확히 이 세션을 찾아 인터럽트를 보낼 수 있다.
-async fn session_for_analysis(state: &AppState, current_turn: Color) -> Option<(String, Arc<GtpSession>)> {
+async fn session_for_analysis(
+    state: &AppState,
+    current_turn: Color,
+) -> Option<(String, Arc<GtpSession>)> {
     if let Some(id) = state.analysis_engine() {
         if let Some(session) = state.session_for_profile(&id).await {
             return Some((id, session));

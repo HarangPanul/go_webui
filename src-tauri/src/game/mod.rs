@@ -235,7 +235,10 @@ impl GameTree {
             size: self.size,
             stones: node.stones.clone(),
             current_turn: node.next_turn,
-            last_move: node.mv.filter(|m| !m.is_pass).map(|m| Point { x: m.x, y: m.y }),
+            last_move: node
+                .mv
+                .filter(|m| !m.is_pass)
+                .map(|m| Point { x: m.x, y: m.y }),
             last_move_is_pass: node.mv.map(|m| m.is_pass).unwrap_or(false),
             current_children,
             can_go_back: node.parent.is_some(),
@@ -298,7 +301,12 @@ impl GameTree {
             parent: Some(self.current),
             children: Vec::new(),
             last_child: None,
-            mv: Some(MoveInfo { x, y, color, is_pass: false }),
+            mv: Some(MoveInfo {
+                x,
+                y,
+                color,
+                is_pass: false,
+            }),
             stones: next_stones,
             next_turn,
             captures,
@@ -320,9 +328,11 @@ impl GameTree {
         let node = &self.nodes[self.current];
         let color = node.next_turn;
 
-        let existing = node.children.iter().copied().find(
-            |&id| matches!(self.nodes[id].mv, Some(m) if m.is_pass && m.color == color),
-        );
+        let existing = node
+            .children
+            .iter()
+            .copied()
+            .find(|&id| matches!(self.nodes[id].mv, Some(m) if m.is_pass && m.color == color));
         if let Some(id) = existing {
             self.nodes[self.current].last_child = Some(id);
             self.current = id;
@@ -337,7 +347,12 @@ impl GameTree {
             parent: Some(self.current),
             children: Vec::new(),
             last_child: None,
-            mv: Some(MoveInfo { x: 0, y: 0, color, is_pass: true }),
+            mv: Some(MoveInfo {
+                x: 0,
+                y: 0,
+                color,
+                is_pass: true,
+            }),
             stones,
             next_turn,
             captures,
@@ -486,8 +501,8 @@ mod tests {
         assert!(tree.confirm_move(1, 0)); // W
         assert!(tree.confirm_move(4, 3)); // B dummy
         assert!(tree.confirm_move(0, 1)); // W
-        // (0,0) 모서리는 이웃이 (1,0)/(0,1) 둘뿐이라 둘 다 White면 Black이 두는 순간
-        // 활로 0 - 아무것도 따내지 못한 채 자기 돌만 즉시 제거되는 자충수.
+                                          // (0,0) 모서리는 이웃이 (1,0)/(0,1) 둘뿐이라 둘 다 White면 Black이 두는 순간
+                                          // 활로 0 - 아무것도 따내지 못한 채 자기 돌만 즉시 제거되는 자충수.
         assert!(tree.confirm_move(0, 0)); // B - 자충수
 
         let snap = tree.snapshot();
@@ -507,9 +522,9 @@ mod tests {
         assert!(tree.confirm_move(0, 1)); // W - 이쪽도 활로가 (0,0) 하나만 남을 group
         assert!(tree.confirm_move(0, 2)); // B
         assert!(tree.confirm_move(4, 4)); // W dummy (차례 맞추기용)
-        // (0,0)에 Black을 두면 얼핏 자충수처럼 보이지만, White 두 그룹을 먼저
-        // 따내면서 활로가 생기므로 실제로는 살아남는다 - apply_captures가 상대
-        // 그룹부터 제거한 뒤에 자기 그룹의 활로를 판정하기 때문.
+                                          // (0,0)에 Black을 두면 얼핏 자충수처럼 보이지만, White 두 그룹을 먼저
+                                          // 따내면서 활로가 생기므로 실제로는 살아남는다 - apply_captures가 상대
+                                          // 그룹부터 제거한 뒤에 자기 그룹의 활로를 판정하기 때문.
         assert!(tree.confirm_move(0, 0)); // B
 
         let snap = tree.snapshot();
@@ -580,7 +595,12 @@ mod tests {
         let mv = tree.go_forward();
         assert_eq!(
             mv,
-            Some(MoveInfo { x: 4, y: 4, color: Color::Black, is_pass: false })
+            Some(MoveInfo {
+                x: 4,
+                y: 4,
+                color: Color::Black,
+                is_pass: false
+            })
         );
         assert_eq!(tree.snapshot().node_id, 2); // 먼저 만들어진 A(id1)가 아니라 마지막에 방문한 B(id2)
     }
@@ -596,7 +616,12 @@ mod tests {
         let mv = tree.go_forward();
         assert_eq!(
             mv,
-            Some(MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false })
+            Some(MoveInfo {
+                x: 0,
+                y: 0,
+                color: Color::Black,
+                is_pass: false
+            })
         );
         assert_eq!(tree.snapshot().node_id, 1); // 남은 유일한 자식 A로 이동
     }
@@ -627,9 +652,24 @@ mod tests {
         assert_eq!(
             tree.move_history(),
             vec![
-                MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false },
-                MoveInfo { x: 0, y: 0, color: Color::White, is_pass: true },
-                MoveInfo { x: 2, y: 2, color: Color::Black, is_pass: false },
+                MoveInfo {
+                    x: 0,
+                    y: 0,
+                    color: Color::Black,
+                    is_pass: false
+                },
+                MoveInfo {
+                    x: 0,
+                    y: 0,
+                    color: Color::White,
+                    is_pass: true
+                },
+                MoveInfo {
+                    x: 2,
+                    y: 2,
+                    color: Color::Black,
+                    is_pass: false
+                },
             ]
         );
     }
@@ -642,7 +682,12 @@ mod tests {
         tree.go_back();
         assert_eq!(
             tree.move_history(),
-            vec![MoveInfo { x: 0, y: 0, color: Color::Black, is_pass: false }]
+            vec![MoveInfo {
+                x: 0,
+                y: 0,
+                color: Color::Black,
+                is_pass: false
+            }]
         );
     }
 

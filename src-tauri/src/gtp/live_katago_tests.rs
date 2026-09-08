@@ -66,7 +66,10 @@ impl KataGoProcess {
             .write_all(format!("{line}\n").as_bytes())
             .await
             .expect("katago_gtp stdin에 쓰기 실패 - 프로세스가 이미 죽었을 수 있음");
-        self.stdin.flush().await.expect("katago_gtp stdin flush 실패");
+        self.stdin
+            .flush()
+            .await
+            .expect("katago_gtp stdin flush 실패");
     }
 
     async fn read_response(&mut self) -> String {

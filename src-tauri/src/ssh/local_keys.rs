@@ -26,7 +26,8 @@ pub struct LocalSshKeyInfo {
 
 #[cfg(desktop)]
 fn ssh_dir() -> Result<PathBuf, AppError> {
-    let home = dirs::home_dir().ok_or_else(|| AppError::Io("홈 디렉터리를 찾을 수 없습니다".to_string()))?;
+    let home = dirs::home_dir()
+        .ok_or_else(|| AppError::Io("홈 디렉터리를 찾을 수 없습니다".to_string()))?;
     Ok(home.join(".ssh"))
 }
 
