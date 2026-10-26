@@ -38,6 +38,8 @@
   "settings.send": "전송",
   "game.confirmMove": "착수 확정",
   "game.pass": "패스",
+  "game.importSgf": "SGF 불러오기",
+  "game.importSgfConfirm": "현재 대국을 SGF 파일로 교체할까요? 지금 대국은 사라집니다.",
   "game.switchColor": "돌 색 전환",
   "game.back": "뒤로 가기",
   "game.goForward": "앞으로 가기",

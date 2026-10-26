@@ -9,12 +9,23 @@
 // 나타나는 문제가 생긴다. go_back/go_forward/remove_last_move는 (기존과 동일하게)
 // board-updated를 직접 emit하지 않는다 - 프론트가 이 커맨드들의 반환값(BoardSnapshot)을
 // 그대로 쓰기 때문.
+use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::AppError;
 use crate::game::BoardSnapshot;
 use crate::services::engine_sync;
+use crate::sgf;
 use crate::state::AppState;
+
+/// import_sgf의 결과: 새로 만든 게임 트리의 스냅샷과, 이 import 이후 적용 중인 덤
+/// (SGF에 KM이 없으면 기존 값 그대로) - 프런트 komiStore를 같이 맞추는 데 쓴다.
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SgfImportResult {
+    pub snapshot: BoardSnapshot,
+    pub komi: f64,
+}
 
 pub struct GameService<'a> {
     state: &'a AppState,
@@ -93,6 +104,31 @@ impl<'a> GameService<'a> {
             engine_sync::sync_undo_to_engine(self.state).await;
         }
         Ok(self.state.game_snapshot())
+    }
+
+    // SGF 내용으로 지금 게임 트리를 통째로 교체한다(기존 대국은 사라짐). 파싱이 실패하면
+    // 아무것도 바꾸지 않고 에러만 돌려준다. 성공하면 덤을 SGF 값으로 맞추고, 연결된 모든
+    // 엔진을 새 게임 상태(보드 크기/덤/놓은 돌/수순)로 재동기화한 뒤 분석이 켜져 있었다면
+    // 새 위치 기준으로 다시 건다. 엔진에 자동 착수가 배정돼 있어도 여기서 genmove를 요청하지
+    // 않는다 - 불러온 기보 위에서 엔진이 바로 두기 시작하면 놀라운 동작이라, 사람이 다음
+    // 수를 두거나 배정을 다시 바꿀 때 이어진다.
+    pub async fn import_sgf(&self, content: &str) -> Result<SgfImportResult, AppError> {
+        let game = sgf::parse(content).map_err(|e| AppError::InvalidInput(e.to_string()))?;
+
+        self.state.with_game(|current| *current = game.tree);
+        if let Some(komi) = game.komi {
+            self.state.set_komi_value(komi);
+        }
+
+        for session in self.state.all_sessions().await {
+            engine_sync::resync_session_to_history(self.state, &session).await;
+        }
+        engine_sync::resume_analysis_for_current_position(self.state).await;
+
+        Ok(SgfImportResult {
+            snapshot: self.state.game_snapshot(),
+            komi: self.state.komi(),
+        })
     }
 
     pub fn toggle_turn(&self) -> BoardSnapshot {

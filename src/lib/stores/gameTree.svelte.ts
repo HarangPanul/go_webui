@@ -14,6 +14,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { pendingMoveStore } from "./pendingMove.svelte";
 import { gameResultStore } from "./gameResult.svelte";
+import { analysisStore } from "./analysis.svelte";
+import { komiStore } from "./komi.svelte";
+import type { SgfImportResult } from "../generated/bindings";
 
 export type Stone = "black" | "white" | null;
 
@@ -169,6 +172,16 @@ function createGameTreeStore() {
     async goForward() {
       pendingMoveStore.cancelPending();
       setSnapshot(await invoke<BoardSnapshot>("go_forward"));
+    },
+    // SGF 파일 내용으로 게임을 통째로 교체. 파싱 실패 시 백엔드가 던지는 에러(appError)를
+    // 그대로 전파하고 현재 대국은 건드리지 않는다. 성공하면 새 트리의 노드 id가 옛
+    // 트리와 겹치므로 노드별로 캐싱된 분석 결과를 비우고, 덤도 SGF 값으로 맞춘다.
+    async importSgf(content: string) {
+      const result = await invoke<SgfImportResult>("import_sgf", { content });
+      pendingMoveStore.cancelPending();
+      analysisStore.clearResults();
+      komiStore.syncFromBackend(result.komi);
+      setSnapshot(result.snapshot);
     },
     // 현재 노드(=가장 마지막으로 둔 수)를 게임 트리에서 통째로 삭제하고 그 부모로 이동
     async removeLastMove() {

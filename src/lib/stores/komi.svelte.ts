@@ -18,6 +18,11 @@ function createKomiStore() {
     get value() {
       return komi;
     },
+    // 백엔드가 이미 값을 바꿨을 때(SGF import의 KM) 프런트 표시만 맞춘다 - 다시
+    // set_komi를 부르지 않는다.
+    syncFromBackend(value: number) {
+      komi = value;
+    },
     // 저장과 동시에(연결되어 있다면) 즉시 엔진에도 반영됨 - set_komi 참고.
     async set(value: number) {
       komi = value;

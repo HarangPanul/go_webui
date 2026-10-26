@@ -72,6 +72,11 @@ function createAnalysisStore() {
     toggleOwnership() {
       showOwnership = !showOwnership;
     },
+    // 분석 토글은 그대로 두고 캐시된 결과만 비운다 - 게임 트리를 통째로 교체해 노드 id가
+    // 새 트리의 것으로 재사용되는 경우(SGF import)에 옛 트리의 결과가 섞이지 않게.
+    clearResults() {
+      results = new Map();
+    },
     reset() {
       results = new Map();
       showAnalysis = false;

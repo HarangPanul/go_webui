@@ -11,6 +11,7 @@
   import { analysisStore } from "../../stores/analysis.svelte";
   import { analysisEngineStore } from "../../stores/analysisEngine.svelte";
   import { holdToRepeat } from "../../utils/holdToRepeat";
+  import { appErrorMessage } from "../../appError";
   import Button from "../ui/Button.svelte";
   import Select from "../ui/Select.svelte";
   import stoneBlackUrl from "../../../assets/stone-black.png";
@@ -49,6 +50,35 @@
   function handleAssignmentChange(color: "black" | "white", event: Event) {
     const value = (event.currentTarget as HTMLSelectElement).value;
     engineAssignmentStore.setAssignment(color, value === "" ? null : value);
+  }
+
+  // SGF 불러오기: 숨겨진 <input type="file">로 파일을 고르면 내용을 읽어 백엔드(import_sgf)
+  // 에 넘긴다 - 파일 시스템 플러그인/권한 없이 데스크탑과 Android WebView 모두에서 동작.
+  // 진행 중인 대국(수가 하나라도 있음)은 통째로 교체되므로 먼저 확인을 받는다. 같은
+  // 파일을 연달아 다시 고를 수 있게 매번 input 값을 비운다.
+  let sgfInput: HTMLInputElement | undefined = $state();
+  let importError = $state<string | null>(null);
+  let importing = $state(false);
+
+  function openSgfPicker() {
+    if (gameTreeStore.canGoBack && !confirm(t("game.importSgfConfirm"))) return;
+    sgfInput?.click();
+  }
+
+  async function handleSgfSelected(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    importError = null;
+    importing = true;
+    try {
+      await gameTreeStore.importSgf(await file.text());
+    } catch (e) {
+      importError = appErrorMessage(e);
+    } finally {
+      importing = false;
+    }
   }
 
   // Analysis(엔진 분석 미리 받아오기) 버튼: 켜지면 "start_kata_analyze" 전용 커맨드로
@@ -228,6 +258,19 @@
   <Button onclick={() => gameTreeStore.passMove()}>
     {t("game.pass")}
   </Button>
+  <Button disabled={importing} onclick={openSgfPicker}>
+    {t("game.importSgf")}
+  </Button>
+  <input
+    bind:this={sgfInput}
+    class="sgf-input"
+    type="file"
+    accept=".sgf,application/x-go-sgf,text/plain"
+    onchange={handleSgfSelected}
+  />
+  {#if importError}
+    <p class="import-error" role="alert">{importError}</p>
+  {/if}
   <!-- 게임 트리에서 부모/자식 노드로 이동. 텍스트 대신 화살표로 표시해 키보드 없이도
   직관적으로 누를 수 있게 함 - 실제 동작(단축키 "["/"]" 포함)은 gameTreeStore.goBack()/
   goForward()와 동일. 자식 쪽은 여러 갈래가 있어도 가장 마지막으로 방문했던 자식으로
@@ -296,6 +339,17 @@
     height: 100%;
     object-fit: contain;
     pointer-events: none;
+  }
+
+  .sgf-input {
+    display: none;
+  }
+
+  .import-error {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-danger);
   }
 
   /* 흑/백 엔진 배정 드롭다운 - 다른 버튼들과 같은 flex 아이템으로 나란히 줄바꿈되되,

@@ -4,6 +4,7 @@ mod game;
 mod gtp;
 mod models;
 mod services;
+mod sgf;
 mod ssh;
 mod state;
 
@@ -48,6 +49,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::game::go_forward,
             commands::game::remove_last_move,
             commands::game::toggle_turn,
+            commands::game::import_sgf,
             commands::platform::supports_local_engine,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)

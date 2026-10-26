@@ -6,7 +6,7 @@ use tauri::{AppHandle, State};
 
 use crate::error::AppError;
 use crate::game::BoardSnapshot;
-use crate::services::game_service::GameService;
+use crate::services::game_service::{GameService, SgfImportResult};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -66,4 +66,17 @@ pub async fn remove_last_move(
 #[specta::specta]
 pub fn toggle_turn(state: State<AppState>, app: AppHandle) -> BoardSnapshot {
     GameService::new(&state, &app).toggle_turn()
+}
+
+/// SGF 파일 내용(문자열)으로 현재 게임을 교체한다. 파일 읽기는 프런트(<input type="file">)가
+/// 하고 여기서는 내용만 받는다 - 파일 시스템 접근 권한/플러그인이 필요 없고 Android에서도
+/// 그대로 동작한다.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_sgf(
+    content: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<SgfImportResult, AppError> {
+    GameService::new(&state, &app).import_sgf(&content).await
 }
