@@ -38,6 +38,8 @@
   "settings.send": "Send",
   "game.confirmMove": "Confirm Move",
   "game.pass": "Pass",
+  "game.importSgf": "Import SGF",
+  "game.importSgfConfirm": "Replace the current game with an SGF file? The current game will be lost.",
   "game.switchColor": "Switch Color",
   "game.back": "Back",
   "game.goForward": "Forward",

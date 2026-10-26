@@ -203,6 +203,9 @@ pub struct GameTree {
     size: usize,
     nodes: Vec<Node>,
     current: usize,
+    // 루트에 미리 놓여 있는 돌(SGF의 AB/AW - 치수 바둑 등). 루트 보드에는 이미 반영되어
+    // 있고, 여기에는 GTP 엔진을 같은 상태로 맞출 때(`play`로 재생) 쓰려고 따로 들고 있다.
+    setup_stones: Vec<MoveInfo>,
 }
 
 impl GameTree {
@@ -220,7 +223,69 @@ impl GameTree {
             size,
             nodes: vec![root],
             current: 0,
+            setup_stones: Vec::new(),
         }
+    }
+
+    /// 루트에 흑/백 돌을 미리 놓은 채로 시작하는 트리(SGF의 AB/AW). 놓은 돌은 따내기
+    /// 판정 없이 있는 그대로 배치하고, `next_turn`이 없으면 흑이 먼저 둔다. 판 밖이거나
+    /// 같은 칸에 중복 지정된 돌이 있으면 None.
+    pub fn with_setup(
+        size: usize,
+        black: &[(usize, usize)],
+        white: &[(usize, usize)],
+        next_turn: Option<Color>,
+    ) -> Option<Self> {
+        let mut tree = GameTree::new(size);
+        for (color, points) in [(Color::Black, black), (Color::White, white)] {
+            for &(x, y) in points {
+                if x >= size || y >= size || tree.nodes[0].stones[y][x].is_some() {
+                    return None;
+                }
+                tree.nodes[0].stones[y][x] = Some(color);
+                tree.setup_stones.push(MoveInfo {
+                    x,
+                    y,
+                    color,
+                    is_pass: false,
+                });
+            }
+        }
+        if let Some(turn) = next_turn {
+            tree.nodes[0].next_turn = turn;
+        }
+        Some(tree)
+    }
+
+    /// 루트에 미리 놓인 돌 목록(엔진 재동기화용 - services::engine_sync 참고).
+    pub fn setup_stones(&self) -> &[MoveInfo] {
+        &self.setup_stones
+    }
+
+    /// 현재 노드의 id(arena 인덱스). import처럼 가지를 하나씩 만들고 돌아와야 하는
+    /// 경로에서 분기점을 기억해 두는 용도.
+    pub(crate) fn cursor(&self) -> usize {
+        self.current
+    }
+
+    pub(crate) fn set_cursor(&mut self, id: usize) {
+        if id < self.nodes.len() {
+            self.current = id;
+        }
+    }
+
+    /// import를 마친 뒤 호출: 모든 노드의 "마지막으로 간 자식"을 첫 번째 자식(SGF의
+    /// 본 줄기)으로 맞춰 앞으로 가기가 본 줄기를 따라가게 하고, 현재 위치를 본 줄기의
+    /// 끝으로 옮긴다.
+    pub(crate) fn finish_import(&mut self) {
+        for node in &mut self.nodes {
+            node.last_child = node.children.first().copied();
+        }
+        let mut id = 0;
+        while let Some(&next) = self.nodes[id].children.first() {
+            id = next;
+        }
+        self.current = id;
     }
 
     pub fn snapshot(&self) -> BoardSnapshot {
@@ -267,6 +332,14 @@ impl GameTree {
     // 하지 않음. 반환값은 실제로 착수(또는 기존 가지로 이동)했는지 여부 - 호출자가 이
     // 값으로 GTP 엔진에 미러링할지 여부를 판단함(거부된 경우 엔진에 보내면 안 됨).
     pub fn confirm_move(&mut self, x: usize, y: usize) -> bool {
+        let color = self.nodes[self.current].next_turn;
+        self.play_as(color, x, y)
+    }
+
+    // confirm_move의 본체 - 차례와 무관하게 지정한 색으로 둔다(SGF import처럼 연속으로
+    // 같은 색이 두는 기보/치수 바둑을 그대로 재현해야 하는 경로용). 이미 돌이 있거나
+    // 판 밖이면 아무 동작도 하지 않고 false.
+    pub(crate) fn play_as(&mut self, color: Color, x: usize, y: usize) -> bool {
         if x >= self.size || y >= self.size {
             return false;
         }
@@ -274,7 +347,6 @@ impl GameTree {
         if node.stones[y][x].is_some() {
             return false;
         }
-        let color = node.next_turn;
 
         let existing = node.children.iter().copied().find(
             |&id| matches!(self.nodes[id].mv, Some(m) if !m.is_pass && m.x == x && m.y == y && m.color == color),
@@ -325,8 +397,13 @@ impl GameTree {
     // confirm_move와 달리 실패할 경우가 없으므로(칸을 고를 필요가 없어 항상 가능)
     // 반환값 없이 바로 트리를 갱신한다.
     pub fn pass_turn(&mut self) {
+        let color = self.nodes[self.current].next_turn;
+        self.pass_as(color);
+    }
+
+    // pass_turn의 본체 - play_as와 같은 이유로 색을 직접 지정할 수 있다.
+    pub(crate) fn pass_as(&mut self, color: Color) {
         let node = &self.nodes[self.current];
-        let color = node.next_turn;
 
         let existing = node
             .children

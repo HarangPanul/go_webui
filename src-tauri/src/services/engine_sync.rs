@@ -89,7 +89,13 @@ pub async fn sync_forward_to_engine(state: &AppState, mv: MoveInfo) {
 /// best-effort: 개별 명령이 실패해도(연결이 막 끊긴 경우 등) 무시 - 그 세션의
 /// 다음 실제 사용(genmove 등)이 알아서 실패로 드러난다.
 pub async fn resync_session_to_history(state: &AppState, session: &GtpSession) {
-    let (size, history) = state.with_game(|game| (game.size(), game.move_history()));
+    let (size, setup, history) = state.with_game(|game| {
+        (
+            game.size(),
+            game.setup_stones().to_vec(),
+            game.move_history(),
+        )
+    });
     let komi = state.komi();
 
     // boardsize 자체가 보드를 비우는 게 GTP 관례지만, 그걸 구현하지 않았거나 크기가
@@ -104,7 +110,9 @@ pub async fn resync_session_to_history(state: &AppState, session: &GtpSession) {
         let _ = session.send(&cmd).await;
     }
 
-    for mv in history {
+    // 루트에 미리 놓인 돌(SGF의 AB/AW) - 수순보다 먼저 깔아야 이후 `play`가 같은 판
+    // 위에서 이어진다. GTP `play`는 색이 번갈아 나올 필요가 없으므로 그대로 재생한다.
+    for mv in setup.into_iter().chain(history) {
         let cmd = if mv.is_pass {
             format!("play {} pass", mv.color.gtp_letter())
         } else {
@@ -220,7 +228,7 @@ async fn drive_engine_moves(state: &AppState, app: &AppHandle) {
 /// 번만 걸면, 적어도 그 위치에 대해서는 결과를 확실히 받는다 - 프런트의 매 수 재시도
 /// 자체는 그대로 남겨둔다(사람이 느리게 두는 일반적인 경우엔 이게 더 빨리 반응하고,
 /// 여기서 한 번 더 걸어도 그저 살짝 이르게 재시작될 뿐 해가 되지 않는다).
-async fn resume_analysis_for_current_position(state: &AppState) {
+pub async fn resume_analysis_for_current_position(state: &AppState) {
     let Some(profile_id) = state.analyzing_profile() else {
         return;
     };

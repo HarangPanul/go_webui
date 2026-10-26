@@ -95,6 +95,12 @@ export const commands = {
 	removeLastMove: () => __TAURI_INVOKE<BoardSnapshot>("remove_last_move"),
 	toggleTurn: () => __TAURI_INVOKE<BoardSnapshot>("toggle_turn"),
 	/**
+	 * SGF 파일 내용(문자열)으로 현재 게임을 교체한다. 파일 읽기는 프런트(<input type="file">)가
+	 * 하고 여기서는 내용만 받는다 - 파일 시스템 접근 권한/플러그인이 필요 없고 Android에서도
+	 * 그대로 동작한다.
+	 */
+	importSgf: (content: string) => __TAURI_INVOKE<SgfImportResult>("import_sgf", { content }),
+	/**
 	 *  이 빌드에서 "Local"(이 기기의 온디바이스 KataGo, tauri-plugin-katago-local) 프로필
 	 *  종류를 실제로 쓸 수 있는지. Android가 아니면 항상 false - ServerProfileForm이 이
 	 *  값에 따라 SSH/Local 선택 UI 자체를 보여줄지 말지 정한다(Local을 골라도 연결
@@ -245,6 +251,15 @@ export type ServerProfileInfo = {
 	 *  값 자체는 검증 외 용도로 쓸 일이 없어 프론트로 내려보내지 않는다.
 	 */
 	hasTrustedHostKey: boolean,
+};
+
+/**
+ * import_sgf의 결과: 새로 만든 게임 트리의 스냅샷과, 이 import 이후 적용 중인 덤
+ * (SGF에 KM이 없으면 기존 값 그대로) - 프런트 komiStore를 같이 맞추는 데 쓴다.
+ */
+export type SgfImportResult = {
+	snapshot: BoardSnapshot,
+	komi: number,
 };
 
 export type StatusPayload = {
